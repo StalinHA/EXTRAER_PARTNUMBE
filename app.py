@@ -75,9 +75,12 @@ st.markdown("""
         border-left: 5px solid #EF4444;
         margin: 1rem 0;
     }
-    .stTextArea textarea {
-        font-family: monospace;
-        font-size: 12px;
+    .custom-box {
+        padding: 1rem;
+        background-color: #EDE9FE;
+        border-radius: 0.5rem;
+        border-left: 5px solid #8B5CF6;
+        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -87,7 +90,7 @@ CATEGORIAS_OFICIALES = {
     '11743': 'COMPUTADORA PORTATIL',
     '11744': 'ESTACION DE TRABAJO PORTATIL',
     '11745': 'TABLETA',
-    '11738': 'ESCANER DE DOCUMENTOS',
+    '11738': 'ESCANER DE DOCUMENTOS',  # <-- AÑADIDA ESTA CATEGORÍA
     '11735': 'COMPUTADORA DE ESCRITORIO',
     '11736': 'COMPUTADORA TODO EN UNO',
     '11740': 'ESTACION DE TRABAJO',
@@ -111,11 +114,12 @@ MARCAS_COMPLETAS = [
     'NEW KRAL', 'TLC'
 ]
 
-# --- ARCHIVO PARA GUARDAR EXCEPCIONES ---
+# --- ARCHIVOS PARA GUARDAR DATOS PERSONALIZADOS ---
 EXCEPCIONES_FILE = "excepciones_part_numbers.pkl"
+MARCAS_PERSONALIZADAS_FILE = "marcas_personalizadas.pkl"
+CATEGORIAS_PERSONALIZADAS_FILE = "categorias_personalizadas.pkl"
 
 def cargar_excepciones():
-    """Carga las excepciones guardadas previamente"""
     try:
         if os.path.exists(EXCEPCIONES_FILE):
             with open(EXCEPCIONES_FILE, 'rb') as f:
@@ -125,7 +129,6 @@ def cargar_excepciones():
     return {}
 
 def guardar_excepciones(excepciones):
-    """Guarda las excepciones en un archivo"""
     try:
         with open(EXCEPCIONES_FILE, 'wb') as f:
             pickle.dump(excepciones, f)
@@ -133,25 +136,53 @@ def guardar_excepciones(excepciones):
     except:
         return False
 
-# --- FUNCIÓN MEJORADA CON EXCEPCIONES ---
+def cargar_marcas_personalizadas():
+    try:
+        if os.path.exists(MARCAS_PERSONALIZADAS_FILE):
+            with open(MARCAS_PERSONALIZADAS_FILE, 'rb') as f:
+                return pickle.load(f)
+    except:
+        pass
+    return []
+
+def guardar_marcas_personalizadas(marcas):
+    try:
+        with open(MARCAS_PERSONALIZADAS_FILE, 'wb') as f:
+            pickle.dump(marcas, f)
+        return True
+    except:
+        return False
+
+def cargar_categorias_personalizadas():
+    try:
+        if os.path.exists(CATEGORIAS_PERSONALIZADAS_FILE):
+            with open(CATEGORIAS_PERSONALIZADAS_FILE, 'rb') as f:
+                return pickle.load(f)
+    except:
+        pass
+    return []
+
+def guardar_categorias_personalizadas(categorias):
+    try:
+        with open(CATEGORIAS_PERSONALIZADAS_FILE, 'wb') as f:
+            pickle.dump(categorias, f)
+        return True
+    except:
+        return False
+
+# --- FUNCIONES DE EXTRACCIÓN MEJORADAS ---
 def extract_part_number_con_excepciones(descripcion, excepciones):
-    """
-    Extrae el número de parte usando los patrones normales + excepciones manuales
-    """
     if not descripcion or not isinstance(descripcion, str):
         return "No especificado"
     
-    # PRIMERO: Verificar si la descripción coincide con alguna excepción
     desc_upper = descripcion.upper()
     for patron, part_number in excepciones.items():
         if patron.upper() in desc_upper:
             return part_number
     
-    # Si no hay excepción, usar la función normal
     return extract_part_number_normal(descripcion)
 
 def extract_part_number_normal(descripcion):
-    """Función normal de extracción de números de parte"""
     if not descripcion or not isinstance(descripcion, str):
         return "No especificado"
     
@@ -229,7 +260,6 @@ def extract_part_number_normal(descripcion):
         
         return True
     
-    # Estrategia 1: Después de "UNIDAD"
     if 'UNIDAD' in desc_upper:
         partes = desc_upper.split('UNIDAD')
         if len(partes) > 1:
@@ -240,14 +270,12 @@ def extract_part_number_normal(descripcion):
                     if es_part_number_valido(match.strip()):
                         return match.strip()
     
-    # Estrategia 2: Toda la descripción
     for patron in patrones_part_number:
         matches = re.findall(patron, desc_clean)
         for match in matches:
             if es_part_number_valido(match.strip()):
                 return match.strip()
     
-    # Estrategia 3: Al final de la descripción
     palabras = desc_clean.split()
     for i in range(len(palabras) - 1, -1, -1):
         palabra = palabras[i].strip()
@@ -255,14 +283,12 @@ def extract_part_number_normal(descripcion):
         if es_part_number_valido(palabra_limpia):
             return palabra_limpia
     
-    # Estrategia 4: Patrón específico
     patron_especifico = r'\b([A-Z]{2,}[0-9]{3,}[A-Z0-9]{2,})\b'
     matches = re.findall(patron_especifico, desc_clean)
     for match in matches:
         if es_part_number_valido(match):
             return match
     
-    # Estrategia 5: Último recurso
     codigos_largos = re.findall(r'\b([A-Z0-9]{8,})\b', desc_clean)
     for codigo in codigos_largos:
         if es_part_number_valido(codigo):
@@ -270,16 +296,31 @@ def extract_part_number_normal(descripcion):
     
     return "No especificado"
 
-def extract_category(descripcion):
+def extract_category(descripcion, categorias_personalizadas):
     desc_lower = descripcion.lower() if descripcion else ""
+    desc_upper = descripcion.upper() if descripcion else ""
+    
+    # Primero verificar categorías personalizadas
+    for categoria in categorias_personalizadas:
+        if categoria.upper() in desc_upper:
+            return categoria.upper()
+    
+    # Luego verificar categorías oficiales
     for codigo, categoria in CATEGORIAS_OFICIALES.items():
         if categoria.lower() in desc_lower:
             return categoria
     return "OTROS"
 
-def extract_brand(descripcion, marcas_list):
+def extract_brand(descripcion, marcas_completas, marcas_personalizadas):
     desc_upper = descripcion.upper() if descripcion else ""
-    for marca in marcas_list:
+    
+    # Primero verificar marcas personalizadas
+    for marca in marcas_personalizadas:
+        if marca.upper() in desc_upper:
+            return marca.upper()
+    
+    # Luego verificar marcas oficiales
+    for marca in marcas_completas:
         if marca.upper() in desc_upper:
             return marca
     return "OTROS"
@@ -312,7 +353,7 @@ def get_all_zip_files_from_github(repo_url):
         st.error(f"Error al obtener archivos: {str(e)}")
         return []
 
-def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones):
+def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, marcas_personalizadas, categorias_personalizadas):
     productos = []
     part_numbers_vistos = set()
     
@@ -367,15 +408,15 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones):
                             continue
                         part_numbers_vistos.add(part_number)
                         
-                        categoria = extract_category(descripcion)
-                        marca = extract_brand(descripcion, MARCAS_COMPLETAS)
+                        categoria = extract_category(descripcion, categorias_personalizadas)
+                        marca = extract_brand(descripcion, MARCAS_COMPLETAS, marcas_personalizadas)
                         
                         producto = {
                             'ID_ProductoOfertado': item.get('ID_ProductoOfertado', ''),
                             'Part_Number': part_number,
                             'Categoria': categoria,
                             'Marca': marca,
-                            'Descripcion': descripcion,  # Descripción COMPLETA
+                            'Descripcion': descripcion,
                             'Moneda': item.get('moneda', ''),
                             'Precio': float(item.get('precio', 0)),
                             'Fecha_Registro': item.get('fecha_registro', ''),
@@ -405,7 +446,7 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones):
     
     return productos
 
-def load_all_data_from_repo(repo_url, excepciones):
+def load_all_data_from_repo(repo_url, excepciones, marcas_personalizadas, categorias_personalizadas):
     all_productos = []
     
     zip_files = get_all_zip_files_from_github(repo_url)
@@ -431,7 +472,9 @@ def load_all_data_from_repo(repo_url, excepciones):
                 zip_info['name'],
                 progress_bar,
                 status_text,
-                excepciones
+                excepciones,
+                marcas_personalizadas,
+                categorias_personalizadas
             )
             
             all_productos.extend(productos)
@@ -482,21 +525,79 @@ def main():
     
     repo_url = "https://github.com/StalinHA/EXTRAER_PARTNUMBE"
     
-    # Cargar excepciones guardadas
+    # Cargar datos personalizados
     excepciones = cargar_excepciones()
+    marcas_personalizadas = cargar_marcas_personalizadas()
+    categorias_personalizadas = cargar_categorias_personalizadas()
     
-    # Mostrar excepciones actuales
-    if excepciones:
-        st.markdown(f"""
-        <div class="info-box">
-            📚 <b>{len(excepciones)} excepciones</b> cargadas para números de parte manuales.
-        </div>
-        """, unsafe_allow_html=True)
+    # ============================================
+    # SECCIÓN: GESTIÓN DE MARCAS Y CATEGORÍAS PERSONALIZADAS
+    # ============================================
+    with st.sidebar.expander("⚙️ Gestionar Marcas y Categorías Personalizadas", expanded=False):
+        st.markdown("### 🏷️ Marcas Personalizadas")
+        
+        # Mostrar marcas actuales
+        if marcas_personalizadas:
+            st.write(f"Marcas actuales: {', '.join(marcas_personalizadas)}")
+        
+        # Agregar nueva marca
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            nueva_marca = st.text_input("Nueva marca:", placeholder="Ej: MIMIO", key="nueva_marca")
+        with col2:
+            if st.button("➕ Agregar Marca", use_container_width=True):
+                if nueva_marca and nueva_marca.upper() not in [m.upper() for m in marcas_personalizadas]:
+                    marcas_personalizadas.append(nueva_marca.upper())
+                    if guardar_marcas_personalizadas(marcas_personalizadas):
+                        st.success(f"✅ Marca '{nueva_marca.upper()}' agregada")
+                        st.rerun()
+                else:
+                    st.warning("⚠️ Marca ya existe o está vacía")
+        
+        # Eliminar marca
+        if marcas_personalizadas:
+            marca_eliminar = st.selectbox("Seleccionar marca para eliminar:", marcas_personalizadas)
+            if st.button("🗑️ Eliminar Marca", type="secondary"):
+                marcas_personalizadas.remove(marca_eliminar)
+                if guardar_marcas_personalizadas(marcas_personalizadas):
+                    st.success(f"✅ Marca '{marca_eliminar}' eliminada")
+                    st.rerun()
+        
+        st.divider()
+        
+        st.markdown("### 📂 Categorías Personalizadas")
+        
+        # Mostrar categorías actuales
+        if categorias_personalizadas:
+            st.write(f"Categorías actuales: {', '.join(categorias_personalizadas)}")
+        
+        # Agregar nueva categoría
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            nueva_categoria = st.text_input("Nueva categoría:", placeholder="Ej: ESCANER DE DOCUMENTOS", key="nueva_categoria")
+        with col2:
+            if st.button("➕ Agregar Categoría", use_container_width=True):
+                if nueva_categoria and nueva_categoria.upper() not in [c.upper() for c in categorias_personalizadas]:
+                    categorias_personalizadas.append(nueva_categoria.upper())
+                    if guardar_categorias_personalizadas(categorias_personalizadas):
+                        st.success(f"✅ Categoría '{nueva_categoria.upper()}' agregada")
+                        st.rerun()
+                else:
+                    st.warning("⚠️ Categoría ya existe o está vacía")
+        
+        # Eliminar categoría
+        if categorias_personalizadas:
+            categoria_eliminar = st.selectbox("Seleccionar categoría para eliminar:", categorias_personalizadas)
+            if st.button("🗑️ Eliminar Categoría", type="secondary"):
+                categorias_personalizadas.remove(categoria_eliminar)
+                if guardar_categorias_personalizadas(categorias_personalizadas):
+                    st.success(f"✅ Categoría '{categoria_eliminar}' eliminada")
+                    st.rerun()
     
     st.markdown('<div class="info-box">📦 Procesando todos los archivos ZIP del repositorio...</div>', unsafe_allow_html=True)
     
     with st.spinner('🔄 Descargando y procesando todos los archivos...'):
-        df = load_all_data_from_repo(repo_url, excepciones)
+        df = load_all_data_from_repo(repo_url, excepciones, marcas_personalizadas, categorias_personalizadas)
     
     if df is None or len(df) == 0:
         st.warning("⚠️ No se encontraron fichas que cumplan los criterios.")
@@ -509,11 +610,21 @@ def main():
     estados = sorted(df['Estado_Ficha'].unique())
     estados_filter = st.sidebar.multiselect("Estado de Ficha", options=estados, default=estados)
     
-    categorias = sorted(df['Categoria'].unique())
-    categorias_filter = st.sidebar.multiselect("Categoría", options=categorias, default=categorias)
+    # Obtener todas las categorías (oficiales + personalizadas)
+    todas_categorias = sorted(df['Categoria'].unique())
+    categorias_filter = st.sidebar.multiselect(
+        "Categoría",
+        options=todas_categorias,
+        default=todas_categorias
+    )
     
-    marcas = sorted(df['Marca'].unique())
-    marcas_filter = st.sidebar.multiselect("Marca", options=marcas, default=marcas)
+    # Obtener todas las marcas (oficiales + personalizadas)
+    todas_marcas = sorted(df['Marca'].unique())
+    marcas_filter = st.sidebar.multiselect(
+        "Marca",
+        options=todas_marcas,
+        default=todas_marcas
+    )
     
     min_price = float(df['Precio'].min())
     max_price = float(df['Precio'].max())
@@ -613,9 +724,7 @@ def main():
     
     st.divider()
     
-    # ============================================
-    # SECCIÓN: CORREGIR NÚMEROS DE PARTE MANUALMENTE
-    # ============================================
+    # --- SECCIÓN: CORREGIR NÚMEROS DE PARTE ---
     st.subheader("✏️ Corregir Números de Parte Manualmente")
     
     no_detectados = df_filtered[df_filtered['Part_Number'] == 'No especificado']
@@ -628,7 +737,6 @@ def main():
         </div>
         """, unsafe_allow_html=True)
         
-        # Selector para elegir qué producto corregir
         opciones = no_detectados['ID_ProductoOfertado'].tolist()
         opciones_con_desc = [f"{id_} - {df_filtered[df_filtered['ID_ProductoOfertado']==id_]['Marca'].iloc[0]} - {df_filtered[df_filtered['ID_ProductoOfertado']==id_]['Categoria'].iloc[0]}" for id_ in opciones]
         
@@ -642,7 +750,6 @@ def main():
             selected_id = opciones[selected_idx]
             producto_seleccionado = df_filtered[df_filtered['ID_ProductoOfertado'] == selected_id].iloc[0]
             
-            # Mostrar descripción COMPLETA
             st.markdown("### 📄 Descripción COMPLETA del producto:")
             descripcion_completa = producto_seleccionado['Descripcion']
             st.text_area(
@@ -653,7 +760,6 @@ def main():
                 key="desc_completa"
             )
             
-            # Campo para ingresar el número de parte correcto
             col1, col2 = st.columns([2, 1])
             with col1:
                 part_number_correcto = st.text_input(
@@ -663,14 +769,11 @@ def main():
                 )
             
             with col2:
-                # Botón para guardar la corrección
                 if st.button("💾 Guardar Corrección", type="primary", use_container_width=True):
                     if part_number_correcto and len(part_number_correcto) >= 4:
-                        # Buscar una palabra clave única en la descripción para usar como patrón
                         palabras_clave = descripcion_completa.split()[:10]
                         patron_busqueda = " ".join(palabras_clave[:5])
                         
-                        # Guardar la excepción
                         excepciones[patron_busqueda] = part_number_correcto
                         
                         if guardar_excepciones(excepciones):
@@ -682,7 +785,6 @@ def main():
                     else:
                         st.warning("⚠️ Ingresa un número de parte válido (mínimo 4 caracteres).")
             
-            # Mostrar todas las excepciones actuales
             if excepciones:
                 with st.expander(f"📚 Ver todas las excepciones guardadas ({len(excepciones)})"):
                     df_excepciones = pd.DataFrame([

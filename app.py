@@ -59,6 +59,13 @@ st.markdown("""
         border-left: 5px solid #10B981;
         margin: 1rem 0;
     }
+    .warning-box {
+        padding: 1rem;
+        background-color: #FEF3C7;
+        border-radius: 0.5rem;
+        border-left: 5px solid #F59E0B;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -110,7 +117,6 @@ def extract_part_number(descripcion):
     # 1. LISTA NEGRA EXTENDIDA
     # ============================================
     PALABRAS_PROHIBIDAS = {
-        # Palabras comunes
         'PROCESADOR', 'COMPUTADORA', 'PANTALLA', 'ALMACENAMIENTO', 'TECLADO', 'MOUSE', 
         'MONITOR', 'TABLETA', 'MEMORIA', 'DISCO', 'INTEL', 'CORE', 'ULTRA', 'DDR', 
         'SSD', 'LCD', 'LED', 'WLAN', 'BLUETOOTH', 'HDMI', 'VGA', 'WINDOWS', 'ANDROID', 
@@ -120,22 +126,15 @@ def extract_part_number(descripcion):
         'NVIDIA', 'AMD', 'ETHERNET', 'THUNDERBOLT', 'USB', 'TACTIL', 'WUXGA', 'FHD',
         'LI-ION', 'LI-PO', 'ON-SITE', 'CARRY-IN', 'PRE-INSTALADA', 'GRAFITO',
         'HOME', 'BUSINESS', 'MICROSOFT', 'OFFICE', 'INSTALADA', 'INSTALADO',
-        
-        # Marcas
         'VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP', 'DELL', 'ASUS', 'ACER',
         'TOSHIBA', 'SONY', 'PANASONIC', 'NEC', 'FUJITSU', 'IBM', 'COMPAQ',
         'CROSSTEK', 'FORESTER', 'FORESTERG2',
-        
-        # Modelos y palabras comunes
         'STATION', 'PRO', 'RL', 'MULTIV', 'THINKPAD', 'GALAXY', 'TAB', 'LITE',
         'SERIES', 'INCH', 'MONITOR', 'PORTATIL', 'ESCRITORIO', 'TODO', 'UNO',
         'ESTACION', 'TRABAJO', 'PUBLICITARIA', 'INTERACTIVA', 'EXTERNO', 'INTERNO',
-        
-        # Palabras prohibidas
         'INCLUIDO', 'ENTERPRISE', 'JELLYFISH', 'COMMANDER', 'CROSSTEK',
         'FORESTER', 'FORESTERG2', 'PREINSTALADA', 'GRAFITO',
-        
-        # RESOLUCIONES DE PANTALLA (NUNCA son part numbers)
+        # RESOLUCIONES
         '1920X1200', '1920X1080', '2560X1440', '2560X1080', '2880X1800',
         '1366X768', '3840X2160', '3440X1440', '2560X1600', '2048X1536',
         '1600X900', '1280X800', '1024X768', '800X600'
@@ -148,29 +147,32 @@ def extract_part_number(descripcion):
         # Con #: DX5R4LS#ABM
         r'\b([A-Z0-9]+#[A-Z0-9]+)\b',
         
-        # LENOVO: L14G5U721162100D
-        r'\b([A-Z][0-9][A-Z0-9]{5,}[0-9]{3,}[A-Z]?)\b',
+        # RG24FIM6C, RG27FIM6C, RG25FIM6C, RM24FIM6C, etc.
+        r'\b(R[GM][0-9]{2}[A-Z]{3,}[0-9][A-Z])\b',
+        r'\b(R[PG][0-9]{2,3}[A-Z]{3,}[0-9][A-Z])\b',
+        r'\b(R[PG][0-9]{2,3}[A-Z]{2,}[0-9][A-Z])\b',
         
-        # LENOVO con guión: E16G6U71716201H-OH
+        # LENOVO
+        r'\b([A-Z][0-9][A-Z0-9]{5,}[0-9]{3,}[A-Z]?)\b',
         r'\b([A-Z][0-9]{2}[A-Z][0-9][A-Z][0-9]{8,}[A-Z]-[A-Z]{2})\b',
         
-        # SAMSUNG: SM-X406BZAAPEO
+        # SAMSUNG
         r'\b(SM-[A-Z0-9]{7,})\b',
         
-        # VASTEC: 7GTRCVA068, 7GTRISBSQ50072, 7WTBISISQ5005K
+        # VASTEC
         r'\b([0-9][A-Z]{2,}[0-9]{3,}[A-Z0-9]*)\b',
         r'\b([0-9][A-Z]{2,}[A-Z0-9]{4,})\b',
         
-        # HP: B0CG8UT
+        # HP
         r'\b([A-Z][0-9][A-Z]{2,}[0-9]{2,})\b',
         
-        # MDL/MDP: MDL2605M2YWA0, MDP2605O4YO4E
+        # MDL/MDP
         r'\b(MD[LP][0-9]{4}[A-Z0-9]{6,})\b',
         
-        # PCAD: PCAD3VP551KMOWH
+        # PCAD
         r'\b(PCAD3VP[0-9]{4}[A-Z]{2,}[A-Z]{2})\b',
         
-        # ALL: ALL26KASIC7161T
+        # ALL
         r'\b(ALL[0-9]{2}[A-Z]{3,}[A-Z0-9]{5,})\b',
         
         # N50SG6U7161, M70SG6U743162000H
@@ -182,7 +184,7 @@ def extract_part_number(descripcion):
         # 90PF04U1
         r'\b([0-9]{2}[A-Z]{2}[0-9]{2}[A-Z][0-9])\b',
         
-        # Patrón general: 8+ caracteres alfanuméricos
+        # Patrón general
         r'\b([A-Z0-9]{8,}(?:-[A-Z0-9]+)?)\b',
     ]
     
@@ -193,42 +195,32 @@ def extract_part_number(descripcion):
         if not texto or len(texto) < 5:
             return False
         
-        # Limpiar caracteres especiales para validación
         texto_limpio = re.sub(r'[^A-Za-z0-9]', '', texto)
         
-        # No puede estar en la lista negra
         if texto_limpio.upper() in PALABRAS_PROHIBIDAS:
             return False
         if texto.upper() in PALABRAS_PROHIBIDAS:
             return False
         
-        # No puede ser una resolución
         if any(res in texto for res in ['1920X1200', '1920X1080', '2560X1440', '2560X1080', '2880X1800']):
             return False
-        if any(res in texto_limpio for res in ['1920X1200', '1920X1080', '2560X1440', '2560X1080', '2880X1800']):
-            return False
         
-        # No puede ser un componente técnico
         if any(p in texto.upper() for p in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']):
             return False
         
-        # No puede ser una marca
         if any(m in texto.upper() for m in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP']):
             return False
         
-        # No puede ser una palabra común
-        if any(p in texto.upper() for p in ['INCLUIDO', 'ENTERPRISE', 'JELLYFISH', 
-                                             'COMMANDER', 'FORESTER', 'CROSSTEK']):
+        if any(p in texto.upper() for p in ['INCLUIDO', 'ENTERPRISE', 'JELLYFISH', 'COMMANDER', 'FORESTER']):
             return False
         
-        # Debe tener al menos una letra y un número
         if not re.search(r'[A-Z]', texto) or not re.search(r'[0-9]', texto):
             return False
         
         return True
     
     # ============================================
-    # 4. ESTRATEGIAS DE EXTRACCIÓN (UNA SOLA VEZ)
+    # 4. ESTRATEGIAS DE EXTRACCIÓN
     # ============================================
     
     # Estrategia 1: Después de "UNIDAD"
@@ -316,6 +308,7 @@ def get_all_zip_files_from_github(repo_url):
 
 def process_zip_file(zip_url, zip_name, progress_bar, status_text):
     productos = []
+    part_numbers_vistos = set()  # Para evitar duplicados
     
     try:
         status_text.text(f"📥 Descargando: {zip_name}")
@@ -363,6 +356,12 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                         
                         descripcion = item.get('descripcion', '')
                         part_number = extract_part_number(descripcion)
+                        
+                        # Si el part number ya fue visto, no lo agregamos de nuevo
+                        if part_number in part_numbers_vistos:
+                            continue
+                        part_numbers_vistos.add(part_number)
+                        
                         categoria = extract_category(descripcion)
                         marca = extract_brand(descripcion, MARCAS_COMPLETAS)
                         
@@ -394,7 +393,7 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                 progress = (idx + 1) / total_json
                 progress_bar.progress(progress)
         
-        status_text.text(f"✅ Procesado: {zip_name} - {len(productos)} productos")
+        status_text.text(f"✅ Procesado: {zip_name} - {len(productos)} productos únicos")
         
     except Exception as e:
         st.error(f"❌ Error al procesar {zip_name}: {str(e)}")
@@ -448,7 +447,7 @@ def create_excel_report(df):
         df.to_excel(writer, sheet_name='Datos_Filtrados', index=False)
         
         resumen = pd.DataFrame({
-            'Métrica': ['Total de Fichas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados'],
+            'Métrica': ['Total de Fichas Únicas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados'],
             'Valor': [
                 len(df),
                 df['Categoria'].nunique(),
@@ -525,7 +524,7 @@ def main():
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-value">{len(df_filtered):,}</div>
-            <div class="metric-label">Total de Fichas</div>
+            <div class="metric-label">Total de Fichas Únicas</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -575,7 +574,7 @@ def main():
         st.markdown(f"""
         <div class="metric-card" style="border-left-color: #10B981;">
             <div class="metric-value" style="color: #10B981;">{part_numbers_validos}</div>
-            <div class="metric-label">✅ Part Numbers Válidos</div>
+            <div class="metric-label">✅ Part Numbers Únicos</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -596,6 +595,27 @@ def main():
         """, unsafe_allow_html=True)
     
     st.divider()
+    
+    # --- MOSTRAR DUPLICADOS ENCONTRADOS ---
+    part_number_counts = df_filtered['Part_Number'].value_counts()
+    duplicados = part_number_counts[part_number_counts > 1]
+    
+    if len(duplicados) > 0:
+        st.markdown(f"""
+        <div class="warning-box">
+            ⚠️ Se encontraron <b>{len(duplicados)}</b> números de parte que aparecen <b>múltiples veces</b> en diferentes fichas.
+            <br>Esto puede deberse a que el mismo producto aparece en varios JSON o archivos ZIP.
+            <br>El dashboard muestra solo <b>valores únicos</b> para evitar duplicados.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Mostrar tabla de duplicados
+        df_duplicados = pd.DataFrame({
+            'Part_Number': duplicados.index,
+            'Cantidad de Ocurrencias': duplicados.values
+        })
+        st.dataframe(df_duplicados, use_container_width=True, hide_index=True)
+        st.divider()
     
     # --- GRÁFICOS ---
     col1, col2 = st.columns(2)
@@ -620,8 +640,8 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
     
     # --- TABLA DE DATOS ---
-    st.subheader("📋 Datos Detallados")
-    st.caption(f"Mostrando {len(df_filtered):,} de {len(df):,} fichas")
+    st.subheader("📋 Datos Detallados (Únicos)")
+    st.caption(f"Mostrando {len(df_filtered):,} fichas únicas de {len(df):,} totales")
     
     display_cols = ['ID_ProductoOfertado', 'Part_Number', 'Categoria', 'Marca',
                     'Precio', 'Puntaje', 'Estado_Ficha', 'Estado_Oferta', 
@@ -656,7 +676,7 @@ def main():
                 st.download_button(
                     label="📥 Descargar Excel",
                     data=excel_data,
-                    file_name=f"dashboard_fichas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"dashboard_fichas_unicas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )

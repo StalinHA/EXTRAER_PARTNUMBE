@@ -4,18 +4,11 @@ import zipfile
 import json
 import re
 from io import BytesIO
-import base64
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import PatternFill
 import requests
-import os
-import tempfile
-import shutil
-from pathlib import Path
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
@@ -25,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- ESTILOS CSS PERSONALIZADOS ---
+# --- ESTILOS CSS ---
 st.markdown("""
 <style>
     .main-header {
@@ -52,23 +45,6 @@ st.markdown("""
     .metric-label {
         font-size: 0.9rem;
         color: #4B5563;
-    }
-    .stProgress > div > div > div > div {
-        background-color: #3B82F6;
-    }
-    .success-box {
-        padding: 1rem;
-        background-color: #D1FAE5;
-        border-radius: 0.5rem;
-        border-left: 5px solid #10B981;
-        margin: 1rem 0;
-    }
-    .info-box {
-        padding: 1rem;
-        background-color: #DBEAFE;
-        border-radius: 0.5rem;
-        border-left: 5px solid #3B82F6;
-        margin: 1rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -102,31 +78,98 @@ MARCAS_COMPLETAS = [
     'NEW KRAL', 'TLC'
 ]
 
-# --- FUNCIONES DE PROCESAMIENTO ---
+# --- FUNCIÓN MEJORADA PARA EXTRAER NÚMERO DE PARTE ---
 def extract_part_number(descripcion):
     """
-    Extrae el número de parte de la descripción usando patrones flexibles.
-    Busca secuencias alfanuméricas con guiones o sin ellos, que suelen ser el part number.
+    Extrae el número de parte de la descripción usando patrones específicos.
+    Basado en los ejemplos proporcionados.
     """
     if not descripcion or not isinstance(descripcion, str):
         return "No especificado"
-
-    # Patrón mejorado para buscar números de parte
-    patrones = [
-        r'(?:UNIDAD\s+)?([A-Z0-9]{8,}(?:-[A-Z0-9]+)?)',  # Busca secuencias alfanuméricas largas
-        r'(?:UNIDAD\s+)?([A-Z0-9]{4,}-[A-Z0-9]{4,})',    # Busca patrones con guión
-        r'([A-Z]{2,4}-[A-Z0-9]{5,})',                    # Busca patrones como SM-X406BZAAPEO
-        r'([A-Z0-9]{6,}(?:-[A-Z0-9]{2,})?)'              # Busca patrones como 7GTRCVA068
+    
+    # Limpiar la descripción
+    desc_clean = descripcion.replace('&#160;', ' ').replace('&quot;', '"')
+    
+    # Palabras comunes que no son números de parte
+    palabras_comunes = [
+        'PROCESADOR', 'COMPUTADORA', 'PANTALLA', 'ALMACENAMIENTO', 
+        'TECLADO', 'MOUSE', 'MONITOR', 'TABLETA', 'MEMORIA', 'DISCO',
+        'INTEL', 'CORE', 'ULTRA', 'DDR', 'SSD', 'LCD', 'LED', 'WLAN',
+        'BLUETOOTH', 'HDMI', 'VGA', 'WINDOWS', 'ANDROID', 'BATERIA',
+        'PESO', 'CAMARA', 'RAEE', 'COLECTIVO', 'GARANTIA', 'MESES',
+        'SIST', 'OPER', 'DOWNGRADE', 'OPTICA', 'OFIMATICA', 'MANEJO',
+        'RETROILUMINACION', 'PIXELES', 'UNIDAD', 'GENERACION'
     ]
-
-    for patron in patrones:
-        match = re.search(patron, descripcion)
+    
+    # Estrategia 1: Buscar específicamente después de "UNIDAD" (más confiable)
+    unidad_patterns = [
+        r'UNIDAD\s+(?:[A-Za-z0-9\s]+?)?\s*([A-Z0-9]{4,}(?:-[A-Z0-9]+)?)',
+        r'UNIDAD\s+([A-Za-z0-9\-]{6,})',
+        r'UNIDAD\s+.*?\b([A-Z0-9]{5,}(?:-[A-Z0-9]+)?)\b'
+    ]
+    
+    for pattern in unidad_patterns:
+        match = re.search(pattern, desc_clean)
         if match:
-            part_num = match.group(1)
-            if len(part_num) >= 4:
-                part_num = re.sub(r'[^\w\-]', '', part_num)
-                return part_num.strip()
-
+            part_num = match.group(1).strip()
+            if part_num.upper() not in palabras_comunes and len(part_num) >= 5:
+                return part_num
+    
+    # Estrategia 2: Patrones específicos basados en ejemplos
+    patrones_especificos = [
+        # LENOVO: L14G5U721162100D, E16G6U71716201H-OH
+        r'\b([A-Z][0-9][A-Z0-9]{4,}[A-Z0-9\-]{3,})\b',
+        
+        # SAMSUNG: SM-X406BZAAPEO
+        r'\b(SM-[A-Z0-9]{5,})\b',
+        
+        # HP: B0CG8UT
+        r'\b([A-Z][0-9][A-Z0-9]{4,})\b',
+        
+        # VASTEC: 7GTRCVA068
+        r'\b([0-9][A-Z]{2,}[0-9]{3,})\b',
+        
+        # Patrón general con guión: EJEMPLO-12345
+        r'\b([A-Z]{2,}-[A-Z0-9]{5,})\b',
+        
+        # Patrón alfanumérico largo (mínimo 8 caracteres)
+        r'\b([A-Z]{2,}[0-9]{2,}[A-Z0-9\-]{4,})\b',
+    ]
+    
+    for patron in patrones_especificos:
+        match = re.search(patron, desc_clean)
+        if match:
+            part_num = match.group(1).strip()
+            if part_num.upper() not in palabras_comunes and len(part_num) >= 5:
+                return part_num
+    
+    # Estrategia 3: Buscar códigos que parezcan números de parte
+    # Buscar secuencias: letras + números + letras, con longitud >= 6
+    codigos = re.findall(r'\b([A-Z]{2,}[0-9]{2,}[A-Z0-9\-]{2,})\b', desc_clean)
+    for codigo in codigos:
+        if codigo.upper() not in palabras_comunes and len(codigo) >= 6:
+            # Verificar que no sea una palabra común como "DDR4" o "HDMI"
+            if not any(palabra in codigo.upper() for palabra in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']):
+                return codigo
+    
+    # Estrategia 4: Buscar después de "UNIDAD" sin patrón específico
+    unidad_index = desc_clean.upper().find('UNIDAD')
+    if unidad_index != -1:
+        resto = desc_clean[unidad_index + 6:].strip()
+        # Buscar el primer código alfanumérico largo
+        codigos_resto = re.findall(r'\b([A-Z0-9]{6,}(?:-[A-Z0-9]+)?)\b', resto)
+        for codigo in codigos_resto:
+            if codigo.upper() not in palabras_comunes and len(codigo) >= 5:
+                return codigo
+    
+    # Estrategia 5: Último código alfanumérico largo en la descripción
+    todos_codigos = re.findall(r'\b([A-Z0-9]{5,}(?:-[A-Z0-9]+)?)\b', desc_clean)
+    for codigo in reversed(todos_codigos):  # De atrás hacia adelante
+        if codigo.upper() not in palabras_comunes and len(codigo) >= 5:
+            # Verificar que no sea un componente técnico común
+            if not any(tech in codigo.upper() for tech in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN', 'WLAN']):
+                return codigo
+    
     return "No especificado"
 
 def extract_category(descripcion):
@@ -146,16 +189,11 @@ def extract_brand(descripcion, marcas_list):
     return "OTROS"
 
 def get_all_zip_files_from_github(repo_url):
-    """
-    Obtiene todos los archivos ZIP del repositorio de GitHub usando la API.
-    """
+    """Obtiene todos los archivos ZIP del repositorio."""
     try:
-        # Convertir URL de GitHub a API
         api_url = repo_url.replace('github.com', 'api.github.com/repos')
         if not api_url.endswith('/contents'):
             api_url = api_url.rstrip('/') + '/contents'
-        
-        st.write(f"🔍 Buscando archivos en: {api_url}")
         
         headers = {'Accept': 'application/vnd.github.v3+json'}
         response = requests.get(api_url, headers=headers)
@@ -175,22 +213,18 @@ def get_all_zip_files_from_github(repo_url):
         return zip_files
     
     except Exception as e:
-        st.error(f"Error al obtener archivos del repositorio: {str(e)}")
+        st.error(f"Error al obtener archivos: {str(e)}")
         return []
 
 def process_zip_file(zip_url, zip_name, progress_bar, status_text):
-    """
-    Procesa un archivo ZIP y extrae todos los JSON que contiene.
-    """
+    """Procesa un archivo ZIP y extrae todos los JSON."""
     productos = []
     
     try:
-        # Descargar ZIP
         status_text.text(f"📥 Descargando: {zip_name}")
         response = requests.get(zip_url)
         response.raise_for_status()
         
-        # Procesar ZIP
         with zipfile.ZipFile(BytesIO(response.content)) as z:
             json_files = [f for f in z.namelist() if f.endswith('.json')]
             
@@ -206,7 +240,6 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                     with z.open(json_file) as f:
                         data = json.load(f)
                     
-                    # Procesar según el formato del JSON
                     items = []
                     if isinstance(data, dict):
                         for key, value in data.items():
@@ -217,25 +250,21 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                     elif isinstance(data, list):
                         items = data
                     
-                    # Procesar cada item
                     for item in items:
                         if not isinstance(item, dict):
                             continue
                         
-                        # Filtro estricto
                         fecha_pub = item.get('fecha_publicacion', '')
                         estado_ficha = item.get('estado_ficha', '')
                         estado_oferta = item.get('estado_oferta', '')
                         
-                        # Verificar fecha en Junio 2026
+                        # Filtro estricto: Junio 2026 + OFERTADA + VIGENTE
                         if '06/2026' not in fecha_pub and '2026-06' not in fecha_pub:
                             continue
                         
-                        # Verificar estados
                         if estado_ficha != "OFERTADA" or estado_oferta != "VIGENTE":
                             continue
                         
-                        # Extraer datos
                         descripcion = item.get('descripcion', '')
                         part_number = extract_part_number(descripcion)
                         categoria = extract_category(descripcion)
@@ -266,11 +295,10 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                     st.warning(f"⚠️ Error en {json_file}: {str(e)}")
                     continue
                 
-                # Actualizar progreso
                 progress = (idx + 1) / total_json
                 progress_bar.progress(progress)
         
-        status_text.text(f"✅ Procesado: {zip_name} - {len(productos)} productos encontrados")
+        status_text.text(f"✅ Procesado: {zip_name} - {len(productos)} productos")
         
     except Exception as e:
         st.error(f"❌ Error al procesar {zip_name}: {str(e)}")
@@ -278,21 +306,17 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
     return productos
 
 def load_all_data_from_repo(repo_url):
-    """
-    Carga y procesa todos los datos de todos los ZIP en el repositorio.
-    """
+    """Carga y procesa todos los datos de todos los ZIP."""
     all_productos = []
     
-    # Obtener lista de archivos ZIP
     zip_files = get_all_zip_files_from_github(repo_url)
     
     if not zip_files:
-        st.error("No se encontraron archivos ZIP en el repositorio.")
+        st.error("No se encontraron archivos ZIP.")
         return None
     
-    st.info(f"📦 Se encontraron {len(zip_files)} archivos ZIP para procesar")
+    st.info(f"📦 Se encontraron {len(zip_files)} archivos ZIP")
     
-    # Crear contenedores para progreso
     progress_container = st.container()
     
     with progress_container:
@@ -312,7 +336,6 @@ def load_all_data_from_repo(repo_url):
             
             all_productos.extend(productos)
             
-            # Actualizar progreso general
             overall_progress = (idx + 1) / total_zips
             progress_bar.progress(overall_progress)
     
@@ -323,126 +346,65 @@ def load_all_data_from_repo(repo_url):
     else:
         return None
 
-def create_excel_report(df, filters):
-    """Crea un archivo Excel con el dashboard y formato condicional."""
+def create_excel_report(df):
+    """Crea un archivo Excel con el dashboard."""
     output = BytesIO()
-
+    
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Hoja de datos filtrados
-        df_filtered = df.copy()
-        df_filtered.to_excel(writer, sheet_name='Datos_Filtrados', index=False)
-
-        # Hoja de resumen
+        df.to_excel(writer, sheet_name='Datos_Filtrados', index=False)
+        
         resumen = pd.DataFrame({
-            'Métrica': [
-                'Total de Fichas', 
-                'Categorías', 
-                'Marcas', 
-                'Precio Promedio', 
-                'Puntaje Promedio',
-                'Archivos ZIP Procesados',
-                'JSON Procesados'
-            ],
+            'Métrica': ['Total de Fichas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados'],
             'Valor': [
-                len(df_filtered),
-                df_filtered['Categoria'].nunique(),
-                df_filtered['Marca'].nunique(),
-                f"${df_filtered['Precio'].mean():,.2f}",
-                f"{df_filtered['Puntaje'].mean():.2f}",
-                df_filtered['Archivo_Origen'].nunique(),
-                df_filtered['JSON_Origen'].nunique()
+                len(df),
+                df['Categoria'].nunique(),
+                df['Marca'].nunique(),
+                f"${df['Precio'].mean():,.2f}",
+                f"{df['Puntaje'].mean():.2f}",
+                df['Archivo_Origen'].nunique()
             ]
         })
         resumen.to_excel(writer, sheet_name='Resumen', index=False)
-
-        # Hoja de distribución por categoría
-        categoria_counts = df_filtered['Categoria'].value_counts().reset_index()
+        
+        categoria_counts = df['Categoria'].value_counts().reset_index()
         categoria_counts.columns = ['Categoria', 'Cantidad']
         categoria_counts.to_excel(writer, sheet_name='Dist_Categoria', index=False)
-
-        # Hoja de distribución por marca
-        marca_counts = df_filtered['Marca'].value_counts().reset_index()
+        
+        marca_counts = df['Marca'].value_counts().reset_index()
         marca_counts.columns = ['Marca', 'Cantidad']
         marca_counts.to_excel(writer, sheet_name='Dist_Marca', index=False)
-
-        # Hoja de distribución por archivo origen
-        origen_counts = df_filtered['Archivo_Origen'].value_counts().reset_index()
-        origen_counts.columns = ['Archivo_ZIP', 'Cantidad']
-        origen_counts.to_excel(writer, sheet_name='Dist_Origen', index=False)
-
-        # Aplicar formato condicional
-        workbook = writer.book
-
-        # Formato para la hoja de datos
-        ws = writer.sheets['Datos_Filtrados']
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
-            for cell in row:
-                if cell.column == 6:  # Columna de Precio
-                    try:
-                        if float(cell.value) > df_filtered['Precio'].quantile(0.75):
-                            cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                    except:
-                        pass
-                elif cell.column == 14:  # Columna de Puntaje
-                    try:
-                        if float(cell.value) >= 85:
-                            cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                        elif float(cell.value) >= 70:
-                            cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-                    except:
-                        pass
-
+    
     output.seek(0)
     return output
 
-# --- INTERFAZ DE USUARIO ---
+# --- INTERFAZ PRINCIPAL ---
 def main():
     st.markdown('<h1 class="main-header">📊 Dashboard de Fichas Técnicas - Junio 2026</h1>', unsafe_allow_html=True)
     
-    # URL del repositorio
     repo_url = "https://github.com/StalinHA/EXTRAER_PARTNUMBE"
     
-    # Contenedor para estado
-    status_container = st.container()
+    st.markdown('<div class="info-box">📦 Procesando todos los archivos ZIP del repositorio...</div>', unsafe_allow_html=True)
     
-    with status_container:
-        st.markdown('<div class="info-box">📦 <b>Procesando todos los archivos ZIP del repositorio...</b></div>', unsafe_allow_html=True)
-    
-    # Cargar datos de todos los ZIP
-    with st.spinner('🔄 Descargando y procesando todos los archivos ZIP del repositorio...'):
+    with st.spinner('🔄 Descargando y procesando todos los archivos...'):
         df = load_all_data_from_repo(repo_url)
-
+    
     if df is None or len(df) == 0:
-        st.warning("⚠️ No se encontraron fichas que cumplan con los criterios (Junio 2026, OFERTADA + VIGENTE).")
+        st.warning("⚠️ No se encontraron fichas que cumplan los criterios.")
         st.info("💡 Verifica que el repositorio contenga datos con las condiciones especificadas.")
         return
-
-    # --- BARRA LATERAL DE FILTROS ---
+    
+    # --- FILTROS ---
     st.sidebar.header("🔍 Filtros")
-
-    # Filtros
+    
     estados = sorted(df['Estado_Ficha'].unique())
-    estados_filter = st.sidebar.multiselect(
-        "Estado de Ficha",
-        options=estados,
-        default=estados
-    )
-
+    estados_filter = st.sidebar.multiselect("Estado de Ficha", options=estados, default=estados)
+    
     categorias = sorted(df['Categoria'].unique())
-    categorias_filter = st.sidebar.multiselect(
-        "Categoría",
-        options=categorias,
-        default=categorias
-    )
-
+    categorias_filter = st.sidebar.multiselect("Categoría", options=categorias, default=categorias)
+    
     marcas = sorted(df['Marca'].unique())
-    marcas_filter = st.sidebar.multiselect(
-        "Marca",
-        options=marcas,
-        default=marcas
-    )
-
-    # Rango de precios
+    marcas_filter = st.sidebar.multiselect("Marca", options=marcas, default=marcas)
+    
     min_price = float(df['Precio'].min())
     max_price = float(df['Precio'].max())
     price_range = st.sidebar.slider(
@@ -453,8 +415,7 @@ def main():
         step=10.0,
         format="%.2f"
     )
-
-    # Aplicar filtros
+    
     df_filtered = df[
         (df['Estado_Ficha'].isin(estados_filter)) &
         (df['Categoria'].isin(categorias_filter)) &
@@ -462,10 +423,10 @@ def main():
         (df['Precio'] >= price_range[0]) &
         (df['Precio'] <= price_range[1])
     ]
-
-    # --- MÉTRICAS PRINCIPALES ---
+    
+    # --- MÉTRICAS ---
     col1, col2, col3, col4, col5 = st.columns(5)
-
+    
     with col1:
         st.markdown(f"""
         <div class="metric-card">
@@ -473,7 +434,7 @@ def main():
             <div class="metric-label">Total de Fichas</div>
         </div>
         """, unsafe_allow_html=True)
-
+    
     with col2:
         st.markdown(f"""
         <div class="metric-card">
@@ -481,7 +442,7 @@ def main():
             <div class="metric-label">Categorías</div>
         </div>
         """, unsafe_allow_html=True)
-
+    
     with col3:
         st.markdown(f"""
         <div class="metric-card">
@@ -489,7 +450,7 @@ def main():
             <div class="metric-label">Marcas</div>
         </div>
         """, unsafe_allow_html=True)
-
+    
     with col4:
         st.markdown(f"""
         <div class="metric-card">
@@ -497,7 +458,7 @@ def main():
             <div class="metric-label">Precio Promedio</div>
         </div>
         """, unsafe_allow_html=True)
-
+    
     with col5:
         st.markdown(f"""
         <div class="metric-card">
@@ -505,161 +466,39 @@ def main():
             <div class="metric-label">ZIP Procesados</div>
         </div>
         """, unsafe_allow_html=True)
-
+    
     st.divider()
-
+    
     # --- GRÁFICOS ---
     col1, col2 = st.columns(2)
-
+    
     with col1:
         st.subheader("📊 Distribución por Categoría")
         if not df_filtered.empty:
-            fig = px.pie(
-                df_filtered,
-                names='Categoria',
-                title='Fichas por Categoría',
-                hole=0.3,
-                color_discrete_sequence=px.colors.qualitative.Set3
-            )
+            fig = px.pie(df_filtered, names='Categoria', title='Fichas por Categoría', hole=0.3)
             fig.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No hay datos para mostrar")
-
+    
     with col2:
         st.subheader("📈 Top 10 Marcas")
         if not df_filtered.empty:
             top_brands = df_filtered['Marca'].value_counts().head(10).reset_index()
             top_brands.columns = ['Marca', 'Cantidad']
-
-            fig = px.bar(
-                top_brands,
-                x='Marca',
-                y='Cantidad',
-                title='Top 10 Marcas con más Fichas',
-                color='Cantidad',
-                color_continuous_scale='Blues',
-                text='Cantidad'
-            )
+            fig = px.bar(top_brands, x='Marca', y='Cantidad', 
+                        title='Top 10 Marcas', color='Cantidad',
+                        color_continuous_scale='Blues', text='Cantidad')
             fig.update_traces(textposition='outside')
             fig.update_layout(xaxis_tickangle=-45)
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No hay datos para mostrar")
-
-    # --- SEGUNDA FILA DE GRÁFICOS ---
-    col3, col4 = st.columns(2)
-
-    with col3:
-        st.subheader("💰 Precio por Categoría")
-        if not df_filtered.empty:
-            price_by_cat = df_filtered.groupby('Categoria')['Precio'].mean().sort_values(ascending=False).reset_index()
-
-            fig = px.bar(
-                price_by_cat,
-                x='Categoria',
-                y='Precio',
-                title='Precio Promedio por Categoría',
-                color='Precio',
-                color_continuous_scale='Reds',
-                text='Precio'
-            )
-            fig.update_traces(texttemplate='$%{text:.2f}', textposition='outside')
-            fig.update_layout(xaxis_tickangle=-45)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No hay datos para mostrar")
-
-    with col4:
-        st.subheader("📊 Resumen por Categoría")
-        if not df_filtered.empty:
-            summary = df_filtered.groupby('Categoria').agg(
-                Cantidad=('Categoria', 'count'),
-                Precio_Promedio=('Precio', 'mean'),
-                Puntaje_Promedio=('Puntaje', 'mean')
-            ).reset_index().sort_values('Cantidad', ascending=False)
-
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=summary['Categoria'],
-                y=summary['Cantidad'],
-                name='Cantidad',
-                marker_color='#3B82F6',
-                yaxis='y'
-            ))
-            fig.add_trace(go.Scatter(
-                x=summary['Categoria'],
-                y=summary['Precio_Promedio'],
-                name='Precio Promedio (USD)',
-                marker_color='#EF4444',
-                yaxis='y2',
-                mode='lines+markers'
-            ))
-
-            fig.update_layout(
-                title='Cantidad y Precio Promedio por Categoría',
-                xaxis_title='Categoría',
-                yaxis=dict(title='Cantidad', side='left'),
-                yaxis2=dict(title='Precio Promedio (USD)', overlaying='y', side='right'),
-                xaxis_tickangle=-45,
-                legend=dict(x=0.01, y=0.99)
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No hay datos para mostrar")
-
-    # --- TERCERA FILA: DISTRIBUCIÓN POR ARCHIVO ORIGEN ---
-    st.subheader("📁 Distribución por Archivo ZIP")
-    col5, col6 = st.columns(2)
-
-    with col5:
-        if not df_filtered.empty:
-            origen_counts = df_filtered['Archivo_Origen'].value_counts().head(10).reset_index()
-            origen_counts.columns = ['Archivo_ZIP', 'Cantidad']
-
-            fig = px.bar(
-                origen_counts,
-                x='Archivo_ZIP',
-                y='Cantidad',
-                title='Top 10 Archivos ZIP con más Fichas',
-                color='Cantidad',
-                color_continuous_scale='Greens',
-                text='Cantidad'
-            )
-            fig.update_traces(textposition='outside')
-            fig.update_layout(xaxis_tickangle=-45)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No hay datos para mostrar")
-
-    with col6:
-        if not df_filtered.empty:
-            # Gráfico de torta de origen
-            fig = px.pie(
-                df_filtered,
-                names='Archivo_Origen',
-                title='Distribución por Archivo ZIP',
-                hole=0.3
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No hay datos para mostrar")
-
-    st.divider()
-
+    
     # --- TABLA DE DATOS ---
     st.subheader("📋 Datos Detallados")
-
-    # Mostrar número de registros
-    st.caption(f"Mostrando {len(df_filtered):,} de {len(df):,} fichas que cumplen los filtros")
-
-    # Columnas a mostrar
+    st.caption(f"Mostrando {len(df_filtered):,} de {len(df):,} fichas")
+    
     display_cols = ['ID_ProductoOfertado', 'Part_Number', 'Categoria', 'Marca',
-                    'Descripcion', 'Precio', 'Puntaje', 'Estado_Ficha', 'Estado_Oferta',
-                    'Fecha_Publicacion', 'Archivo_Origen']
-
-    # Crear tabla con estilo
+                    'Descripcion', 'Precio', 'Puntaje', 'Estado_Ficha', 
+                    'Estado_Oferta', 'Fecha_Publicacion', 'Archivo_Origen']
+    
     st.dataframe(
         df_filtered[display_cols],
         column_config={
@@ -678,27 +517,26 @@ def main():
         hide_index=True,
         use_container_width=True
     )
-
-    # --- EXPORTAR A EXCEL ---
+    
+    # --- EXPORTAR ---
     st.divider()
     col1, col2, col3 = st.columns([1, 2, 1])
-
+    
     with col2:
         if st.button("📥 Exportar Dashboard a Excel", use_container_width=True, type="primary"):
-            with st.spinner("Generando archivo Excel con dashboard..."):
-                excel_data = create_excel_report(df_filtered, {})
+            with st.spinner("Generando archivo Excel..."):
+                excel_data = create_excel_report(df_filtered)
                 st.download_button(
                     label="📥 Descargar Excel",
                     data=excel_data,
-                    file_name=f"dashboard_fichas_completo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"dashboard_fichas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
-                st.success("✅ Excel generado correctamente!")
-
-    # --- PIE DE PÁGINA ---
+                st.success("✅ Excel generado!")
+    
     st.divider()
-    st.caption(f"📊 Dashboard generado el {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | Datos procesados desde GitHub")
+    st.caption(f"📊 Dashboard generado el {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
 if __name__ == "__main__":
     main()

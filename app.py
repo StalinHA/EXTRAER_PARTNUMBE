@@ -163,12 +163,13 @@ def guardar_categorias_personalizadas(categorias):
     except:
         return False
 
-# --- FUNCIONES DE EXTRACCIÓN MEJORADAS ---
+# --- FUNCIONES DE EXTRACCIÓN ---
 def extract_part_number_con_excepciones(descripcion, excepciones):
     if not descripcion or not isinstance(descripcion, str):
         return "No especificado"
     
     desc_upper = descripcion.upper()
+    
     for patron, part_number in excepciones.items():
         if patron.upper() in desc_upper:
             return part_number
@@ -206,22 +207,51 @@ def extract_part_number_normal(descripcion):
     }
     
     patrones_part_number = [
+        # Patrón para 9GTRS9ZTQ500HP
+        r'\b([0-9][A-Z]{2,}[0-9][A-Z]{2,}[0-9]{3,}[A-Z]{2})\b',
+        
+        # Con #: DX5R4LS#ABM
         r'\b([A-Z0-9]+#[A-Z0-9]+)\b',
+        
+        # RG24FIM6C, RG27FIM6C, etc.
         r'\b(R[GM][0-9]{2}[A-Z]{3,}[0-9][A-Z])\b',
         r'\b(R[PG][0-9]{2,3}[A-Z]{3,}[0-9][A-Z])\b',
         r'\b(R[PG][0-9]{2,3}[A-Z]{2,}[0-9][A-Z])\b',
+        
+        # LENOVO
         r'\b([A-Z][0-9][A-Z0-9]{5,}[0-9]{3,}[A-Z]?)\b',
         r'\b([A-Z][0-9]{2}[A-Z][0-9][A-Z][0-9]{8,}[A-Z]-[A-Z]{2})\b',
+        
+        # SAMSUNG
         r'\b(SM-[A-Z0-9]{7,})\b',
+        
+        # VASTEC
         r'\b([0-9][A-Z]{2,}[0-9]{3,}[A-Z0-9]*)\b',
         r'\b([0-9][A-Z]{2,}[A-Z0-9]{4,})\b',
+        
+        # HP (incluye 6FW09A-G3)
         r'\b([A-Z][0-9][A-Z]{2,}[0-9]{2,})\b',
+        r'\b([A-Z0-9]{4,}-[A-Z0-9]{2})\b',
+        
+        # MDL/MDP
         r'\b(MD[LP][0-9]{4}[A-Z0-9]{6,})\b',
+        
+        # PCAD
         r'\b(PCAD3VP[0-9]{4}[A-Z]{2,}[A-Z]{2})\b',
+        
+        # ALL
         r'\b(ALL[0-9]{2}[A-Z]{3,}[A-Z0-9]{5,})\b',
+        
+        # N50SG6U7161, M70SG6U743162000H
         r'\b([A-Z][0-9]{2}[A-Z]{2}[A-Z][0-9]{4,})\b',
+        
+        # AB3S6LS, A95B6LSABM-SD
         r'\b([A-Z]{2,}[0-9][A-Z]{2,}[0-9]{2,}[A-Z]*(?:-[A-Z]{2})?)\b',
+        
+        # 90PF04U1
         r'\b([0-9]{2}[A-Z]{2}[0-9]{2}[A-Z][0-9])\b',
+        
+        # Patrón general: 8+ caracteres alfanuméricos
         r'\b([A-Z0-9]{8,}(?:-[A-Z0-9]+)?)\b',
     ]
     
@@ -296,18 +326,14 @@ def extract_category(descripcion, categorias_personalizadas):
     desc_lower = descripcion.lower()
     desc_upper = descripcion.upper()
     
-    # PRIMERO: Verificar categorías personalizadas
     for categoria in categorias_personalizadas:
         if categoria.upper() in desc_upper:
             return categoria.upper()
     
-    # SEGUNDO: Verificar categorías oficiales (con búsqueda exacta)
     for codigo, categoria in CATEGORIAS_OFICIALES.items():
-        # Buscar la categoría como frase completa
         if categoria.lower() in desc_lower:
             return categoria
     
-    # TERCERO: Buscar "ESCANER" específicamente
     if 'ESCANER' in desc_upper or 'ESCANNER' in desc_upper:
         return 'ESCANER DE DOCUMENTOS'
     
@@ -319,12 +345,10 @@ def extract_brand(descripcion, marcas_completas, marcas_personalizadas):
     
     desc_upper = descripcion.upper()
     
-    # Primero verificar marcas personalizadas
     for marca in marcas_personalizadas:
         if marca.upper() in desc_upper:
             return marca.upper()
     
-    # Luego verificar marcas oficiales
     for marca in marcas_completas:
         if marca.upper() in desc_upper:
             return marca
@@ -360,7 +384,7 @@ def get_all_zip_files_from_github(repo_url):
 
 def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, marcas_personalizadas, categorias_personalizadas):
     productos = []
-    part_numbers_vistos = set()  # Para controlar duplicados por Part Number
+    part_numbers_vistos = set()
     
     try:
         status_text.text(f"📥 Descargando: {zip_name}")
@@ -396,20 +420,25 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, 
                         if not isinstance(item, dict):
                             continue
                         
-                        fecha_pub = item.get('fecha_publicacion', '')
+                        # ============================================
+                        # FILTRO CORREGIDO: Usar fecha_adjudicacion
+                        # ============================================
+                        fecha_adjudicacion = item.get('fecha_adjudicacion', '')
                         estado_ficha = item.get('estado_ficha', '')
                         estado_oferta = item.get('estado_oferta', '')
                         
-                        if '06/2026' not in fecha_pub and '2026-06' not in fecha_pub:
+                        # FILTRO: fecha_adjudicacion en Junio 2026
+                        if '06/2026' not in fecha_adjudicacion and '2026-06' not in fecha_adjudicacion:
                             continue
                         
+                        # FILTRO: OFERTADA + VIGENTE
                         if estado_ficha != "OFERTADA" or estado_oferta != "VIGENTE":
                             continue
                         
                         descripcion = item.get('descripcion', '')
                         part_number = extract_part_number_con_excepciones(descripcion, excepciones)
                         
-                        # FILTRAR DUPLICADOS POR PART NUMBER
+                        # Evitar duplicados por Part Number
                         if part_number in part_numbers_vistos:
                             continue
                         part_numbers_vistos.add(part_number)
@@ -428,8 +457,8 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, 
                             'Fecha_Registro': item.get('fecha_registro', ''),
                             'Estado_Ficha': estado_ficha,
                             'Estado_Oferta': estado_oferta,
-                            'Fecha_Adjudicacion': item.get('fecha_adjudicacion', ''),
-                            'Fecha_Publicacion': fecha_pub,
+                            'Fecha_Adjudicacion': fecha_adjudicacion,
+                            'Fecha_Publicacion': item.get('fecha_publicacion', ''),
                             'Motivo': item.get('motivo', ''),
                             'Justificacion': item.get('justificacion', ''),
                             'Puntaje': float(item.get('puntaje', 0)),
@@ -531,22 +560,17 @@ def main():
     
     repo_url = "https://github.com/StalinHA/EXTRAER_PARTNUMBE"
     
-    # Cargar datos personalizados
     excepciones = cargar_excepciones()
     marcas_personalizadas = cargar_marcas_personalizadas()
     categorias_personalizadas = cargar_categorias_personalizadas()
     
-    # Botón para recargar datos
     col1, col2, col3 = st.columns([3, 1, 3])
     with col2:
         if st.button("🔄 Recargar Datos", type="primary", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
     
-    # ============================================
-    # SECCIÓN: GESTIÓN DE MARCAS Y CATEGORÍAS PERSONALIZADAS
-    # ============================================
-    with st.sidebar.expander("⚙️ Gestionar Marcas y Categorías Personalizadas", expanded=True):
+    with st.sidebar.expander("⚙️ Gestionar Marcas y Categorías", expanded=True):
         st.markdown("### 🏷️ Marcas Personalizadas")
         
         if marcas_personalizadas:
@@ -601,9 +625,6 @@ def main():
                     st.success(f"✅ Categoría '{categoria_eliminar}' eliminada")
                     st.rerun()
     
-    # ============================================
-    # CARGA DE DATOS
-    # ============================================
     st.markdown('<div class="info-box">📦 Procesando todos los archivos ZIP del repositorio...</div>', unsafe_allow_html=True)
     
     with st.spinner('🔄 Descargando y procesando todos los archivos...'):
@@ -614,11 +635,11 @@ def main():
         st.info("💡 Verifica que el repositorio contenga datos con las condiciones especificadas.")
         return
     
-    # Mostrar categorías disponibles
     categorias_encontradas = sorted(df['Categoria'].unique())
     st.markdown(f"""
     <div class="info-box">
         📊 Categorías encontradas: <b>{', '.join(categorias_encontradas)}</b>
+        <br>📌 Total de fichas únicas: <b>{len(df):,}</b>
     </div>
     """, unsafe_allow_html=True)
     
@@ -740,7 +761,7 @@ def main():
     
     st.divider()
     
-    # --- SECCIÓN: CORREGIR NÚMEROS DE PARTE ---
+    # --- CORREGIR NÚMEROS DE PARTE ---
     st.subheader("✏️ Corregir Números de Parte Manualmente")
     
     no_detectados = df_filtered[df_filtered['Part_Number'] == 'No especificado']
@@ -749,7 +770,6 @@ def main():
         st.markdown(f"""
         <div class="danger-box">
             ⚠️ <b>{len(no_detectados)} productos</b> no tienen número de parte detectado.
-            <br>Puedes <b>ingresar manualmente</b> el número de parte correcto y el sistema lo guardará para futuras ejecuciones.
         </div>
         """, unsafe_allow_html=True)
         
@@ -767,16 +787,14 @@ def main():
             producto_seleccionado = df_filtered[df_filtered['ID_ProductoOfertado'] == selected_id].iloc[0]
             
             st.markdown("### 📄 Descripción COMPLETA del producto:")
-            descripcion_completa = producto_seleccionado['Descripcion']
             st.text_area(
                 "Descripción (completa):",
-                value=descripcion_completa,
+                value=producto_seleccionado['Descripcion'],
                 height=200,
                 disabled=True,
                 key="desc_completa"
             )
             
-            # Mostrar categoría y marca actual
             st.info(f"📌 Categoría actual: **{producto_seleccionado['Categoria']}** | Marca actual: **{producto_seleccionado['Marca']}**")
             
             col1, col2 = st.columns([2, 1])
@@ -790,32 +808,19 @@ def main():
             with col2:
                 if st.button("💾 Guardar Corrección", type="primary", use_container_width=True):
                     if part_number_correcto and len(part_number_correcto) >= 4:
-                        palabras_clave = descripcion_completa.split()[:10]
+                        palabras_clave = producto_seleccionado['Descripcion'].split()[:10]
                         patron_busqueda = " ".join(palabras_clave[:5])
                         
                         excepciones[patron_busqueda] = part_number_correcto
                         
                         if guardar_excepciones(excepciones):
-                            st.success(f"✅ ¡Corrección guardada! '{part_number_correcto}' se usará automáticamente para productos similares.")
-                            st.info("🔄 La página se recargará para aplicar los cambios...")
+                            st.success(f"✅ ¡Corrección guardada! '{part_number_correcto}'")
+                            st.info("🔄 Recargando para aplicar cambios...")
                             st.rerun()
                         else:
                             st.error("❌ Error al guardar la corrección.")
                     else:
                         st.warning("⚠️ Ingresa un número de parte válido (mínimo 4 caracteres).")
-            
-            if excepciones:
-                with st.expander(f"📚 Ver todas las excepciones guardadas ({len(excepciones)})"):
-                    df_excepciones = pd.DataFrame([
-                        {"Patrón de búsqueda": k, "Número de parte": v} 
-                        for k, v in excepciones.items()
-                    ])
-                    st.dataframe(df_excepciones, use_container_width=True, hide_index=True)
-                    
-                    if st.button("🗑️ Limpiar todas las excepciones", type="secondary"):
-                        if guardar_excepciones({}):
-                            st.success("✅ Excepciones eliminadas.")
-                            st.rerun()
     
     else:
         st.markdown("""
@@ -823,15 +828,6 @@ def main():
             ✅ ¡Todos los productos tienen número de parte detectado!
         </div>
         """, unsafe_allow_html=True)
-    
-    st.divider()
-    
-    # --- MOSTRAR DISTRIBUCIÓN DE CATEGORÍAS ---
-    st.subheader("📊 Distribución de Categorías")
-    if not df_filtered.empty:
-        categoria_counts = df_filtered['Categoria'].value_counts().reset_index()
-        categoria_counts.columns = ['Categoria', 'Cantidad']
-        st.dataframe(categoria_counts, use_container_width=True, hide_index=True)
     
     st.divider()
     
@@ -858,12 +854,12 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
     
     # --- TABLA DE DATOS ---
-    st.subheader("📋 Datos Detallados (Únicos por Part Number)")
-    st.caption(f"Mostrando {len(df_filtered):,} fichas únicas de {len(df):,} totales")
+    st.subheader("📋 Datos Detallados")
+    st.caption(f"Mostrando {len(df_filtered):,} fichas únicas")
     
     display_cols = ['ID_ProductoOfertado', 'Part_Number', 'Categoria', 'Marca',
                     'Precio', 'Puntaje', 'Estado_Ficha', 'Estado_Oferta', 
-                    'Fecha_Publicacion', 'Archivo_Origen']
+                    'Fecha_Adjudicacion', 'Archivo_Origen']
     
     st.dataframe(
         df_filtered[display_cols],
@@ -876,7 +872,7 @@ def main():
             "Puntaje": st.column_config.NumberColumn("Puntaje", format="%.2f"),
             "Estado_Ficha": st.column_config.TextColumn("Estado Ficha"),
             "Estado_Oferta": st.column_config.TextColumn("Estado Oferta"),
-            "Fecha_Publicacion": st.column_config.TextColumn("Fecha Publicación"),
+            "Fecha_Adjudicacion": st.column_config.TextColumn("Fecha Adjudicación"),
             "Archivo_Origen": st.column_config.TextColumn("Archivo ZIP"),
         },
         hide_index=True,
@@ -894,7 +890,7 @@ def main():
                 st.download_button(
                     label="📥 Descargar Excel",
                     data=excel_data,
-                    file_name=f"dashboard_fichas_unicas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"dashboard_fichas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )

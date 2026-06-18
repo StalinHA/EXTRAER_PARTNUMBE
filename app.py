@@ -75,13 +75,6 @@ st.markdown("""
         border-left: 5px solid #EF4444;
         margin: 1rem 0;
     }
-    .custom-box {
-        padding: 1rem;
-        background-color: #EDE9FE;
-        border-radius: 0.5rem;
-        border-left: 5px solid #8B5CF6;
-        margin: 1rem 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -297,22 +290,34 @@ def extract_part_number_normal(descripcion):
     return "No especificado"
 
 def extract_category(descripcion, categorias_personalizadas):
-    desc_lower = descripcion.lower() if descripcion else ""
-    desc_upper = descripcion.upper() if descripcion else ""
+    if not descripcion:
+        return "OTROS"
     
-    # Primero verificar categorías personalizadas
+    desc_lower = descripcion.lower()
+    desc_upper = descripcion.upper()
+    
+    # PRIMERO: Verificar categorías personalizadas
     for categoria in categorias_personalizadas:
         if categoria.upper() in desc_upper:
             return categoria.upper()
     
-    # Luego verificar categorías oficiales
+    # SEGUNDO: Verificar categorías oficiales (con búsqueda exacta)
     for codigo, categoria in CATEGORIAS_OFICIALES.items():
+        # Buscar la categoría como frase completa
         if categoria.lower() in desc_lower:
             return categoria
+    
+    # TERCERO: Buscar "ESCANER" específicamente
+    if 'ESCANER' in desc_upper or 'ESCANNER' in desc_upper:
+        return 'ESCANER DE DOCUMENTOS'
+    
     return "OTROS"
 
 def extract_brand(descripcion, marcas_completas, marcas_personalizadas):
-    desc_upper = descripcion.upper() if descripcion else ""
+    if not descripcion:
+        return "OTROS"
+    
+    desc_upper = descripcion.upper()
     
     # Primero verificar marcas personalizadas
     for marca in marcas_personalizadas:
@@ -353,8 +358,9 @@ def get_all_zip_files_from_github(repo_url):
         st.error(f"Error al obtener archivos: {str(e)}")
         return []
 
-def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, marcas_personalizadas, categorias_personalizadas, part_numbers_vistos_global):
+def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, marcas_personalizadas, categorias_personalizadas):
     productos = []
+    part_numbers_vistos = set()  # Para controlar duplicados por Part Number
     
     try:
         status_text.text(f"📥 Descargando: {zip_name}")
@@ -403,8 +409,10 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, 
                         descripcion = item.get('descripcion', '')
                         part_number = extract_part_number_con_excepciones(descripcion, excepciones)
                         
-                        # NO FILTRAR POR PART NUMBER DUPLICADO - mostrar todos
-                        # Solo filtramos si queremos únicos, pero mostramos todos
+                        # FILTRAR DUPLICADOS POR PART NUMBER
+                        if part_number in part_numbers_vistos:
+                            continue
+                        part_numbers_vistos.add(part_number)
                         
                         categoria = extract_category(descripcion, categorias_personalizadas)
                         marca = extract_brand(descripcion, MARCAS_COMPLETAS, marcas_personalizadas)
@@ -437,7 +445,7 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, 
                 progress = (idx + 1) / total_json
                 progress_bar.progress(progress)
         
-        status_text.text(f"✅ Procesado: {zip_name} - {len(productos)} productos")
+        status_text.text(f"✅ Procesado: {zip_name} - {len(productos)} productos únicos")
         
     except Exception as e:
         st.error(f"❌ Error al procesar {zip_name}: {str(e)}")
@@ -472,8 +480,7 @@ def load_all_data_from_repo(repo_url, excepciones, marcas_personalizadas, catego
                 status_text,
                 excepciones,
                 marcas_personalizadas,
-                categorias_personalizadas,
-                set()  # No usamos filtro de duplicados
+                categorias_personalizadas
             )
             
             all_productos.extend(productos)
@@ -495,7 +502,7 @@ def create_excel_report(df):
         df.to_excel(writer, sheet_name='Datos_Filtrados', index=False)
         
         resumen = pd.DataFrame({
-            'Métrica': ['Total de Fichas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados'],
+            'Métrica': ['Total de Fichas Únicas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados'],
             'Valor': [
                 len(df),
                 df['Categoria'].nunique(),
@@ -608,9 +615,10 @@ def main():
         return
     
     # Mostrar categorías disponibles
+    categorias_encontradas = sorted(df['Categoria'].unique())
     st.markdown(f"""
     <div class="info-box">
-        📊 Categorías encontradas: <b>{', '.join(sorted(df['Categoria'].unique()))}</b>
+        📊 Categorías encontradas: <b>{', '.join(categorias_encontradas)}</b>
     </div>
     """, unsafe_allow_html=True)
     
@@ -660,7 +668,7 @@ def main():
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-value">{len(df_filtered):,}</div>
-            <div class="metric-label">Total de Fichas</div>
+            <div class="metric-label">Total de Fichas Únicas</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -775,14 +783,13 @@ def main():
             with col1:
                 part_number_correcto = st.text_input(
                     "✏️ Ingresa el número de parte correcto:",
-                    placeholder="Ejemplo: 9GTRS9ZTQ500HP",
+                    placeholder="Ejemplo: 6FW09A-G3",
                     key="part_number_manual"
                 )
             
             with col2:
                 if st.button("💾 Guardar Corrección", type="primary", use_container_width=True):
                     if part_number_correcto and len(part_number_correcto) >= 4:
-                        # Usar la categoría y marca como parte del patrón
                         palabras_clave = descripcion_completa.split()[:10]
                         patron_busqueda = " ".join(palabras_clave[:5])
                         
@@ -851,8 +858,8 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
     
     # --- TABLA DE DATOS ---
-    st.subheader("📋 Datos Detallados")
-    st.caption(f"Mostrando {len(df_filtered):,} fichas de {len(df):,} totales")
+    st.subheader("📋 Datos Detallados (Únicos por Part Number)")
+    st.caption(f"Mostrando {len(df_filtered):,} fichas únicas de {len(df):,} totales")
     
     display_cols = ['ID_ProductoOfertado', 'Part_Number', 'Categoria', 'Marca',
                     'Precio', 'Puntaje', 'Estado_Ficha', 'Estado_Oferta', 
@@ -887,7 +894,7 @@ def main():
                 st.download_button(
                     label="📥 Descargar Excel",
                     data=excel_data,
-                    file_name=f"dashboard_fichas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"dashboard_fichas_unicas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )

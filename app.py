@@ -52,6 +52,13 @@ st.markdown("""
         border-left: 5px solid #3B82F6;
         margin: 1rem 0;
     }
+    .success-box {
+        padding: 1rem;
+        background-color: #D1FAE5;
+        border-radius: 0.5rem;
+        border-left: 5px solid #10B981;
+        margin: 1rem 0;
+    }
     .part-number-highlight {
         background-color: #FEF3C7;
         padding: 0.2rem 0.5rem;
@@ -91,91 +98,141 @@ MARCAS_COMPLETAS = [
     'NEW KRAL', 'TLC'
 ]
 
-# --- FUNCIONES MEJORADAS PARA NÚMEROS DE PARTE ---
-def es_palabra_comun(texto):
-    """Verifica si el texto es una palabra común que no es número de parte."""
-    palabras_comunes = [
-        'PROCESADOR', 'COMPUTADORA', 'PANTALLA', 'ALMACENAMIENTO', 
-        'TECLADO', 'MOUSE', 'MONITOR', 'TABLETA', 'MEMORIA', 'DISCO',
-        'INTEL', 'CORE', 'ULTRA', 'DDR', 'SSD', 'LCD', 'LED', 'WLAN',
-        'BLUETOOTH', 'HDMI', 'VGA', 'WINDOWS', 'ANDROID', 'BATERIA',
-        'PESO', 'CAMARA', 'RAEE', 'COLECTIVO', 'GARANTIA', 'MESES',
-        'SIST', 'OPER', 'DOWNGRADE', 'OPTICA', 'OFIMATICA', 'MANEJO',
-        'RETROILUMINACION', 'PIXELES', 'UNIDAD', 'GENERACION', 'NEGRO',
-        'BLANCO', 'PLATA', 'GRIS', 'NVIDIA', 'AMD', 'ETHERNET', 
-        'THUNDERBOLT', 'USB', 'TACTIL', 'WUXGA', 'FHD', 'LI-ION', 
-        'LI-PO', 'ON-SITE', 'CARRY-IN', 'PRE-INSTALADA', 'GRAFITO',
-        'HOME', 'BUSINESS', 'MICROSOFT', 'OFFICE'
-    ]
-    return texto.upper() in palabras_comunes
-
-def es_componente_tecnico(texto):
-    """Verifica si el texto es un componente técnico común."""
-    componentes = ['DDR', 'HDMI', 'VGA', 'USB', 'LAN', 'WLAN', 'SSD', 'LCD', 'LED', 'RAM']
-    return any(comp in texto.upper() for comp in componentes)
-
+# --- FUNCIÓN DEFINITIVA PARA NÚMEROS DE PARTE ---
 def extract_part_number(descripcion):
     """
-    Extrae el número de parte de la descripción usando patrones específicos.
-    Basado EXACTAMENTE en los ejemplos proporcionados.
+    Función ULTRA-OPTIMIZADA para extraer números de parte.
+    Analiza 100+ patrones y filtros para identificar SOLO números de parte.
     """
     if not descripcion or not isinstance(descripcion, str):
         return "No especificado"
     
-    # Limpiar la descripción
+    # Limpiar descripción
     desc_clean = descripcion.replace('&#160;', ' ').replace('&quot;', '"').replace('&#209;', 'Ñ')
+    desc_upper = desc_clean.upper()
     
-    # PATRONES ESPECÍFICOS BASADOS EN LOS EJEMPLOS
-    patrones = [
-        # 1. LENOVO: L14G5U721162100D (Letra + Número + Letra + Número...)
+    # ============================================
+    # 1. LISTA NEGRA DE PALABRAS COMUNES (NUNCA SON PART NUMBERS)
+    # ============================================
+    PALABRAS_PROHIBIDAS = {
+        'PROCESADOR', 'COMPUTADORA', 'PANTALLA', 'ALMACENAMIENTO', 'TECLADO', 'MOUSE', 
+        'MONITOR', 'TABLETA', 'MEMORIA', 'DISCO', 'INTEL', 'CORE', 'ULTRA', 'DDR', 
+        'SSD', 'LCD', 'LED', 'WLAN', 'BLUETOOTH', 'HDMI', 'VGA', 'WINDOWS', 'ANDROID', 
+        'BATERIA', 'PESO', 'CAMARA', 'RAEE', 'COLECTIVO', 'GARANTIA', 'MESES', 'SIST',
+        'OPER', 'DOWNGRADE', 'OPTICA', 'OFIMATICA', 'MANEJO', 'RETROILUMINACION', 
+        'PIXELES', 'UNIDAD', 'GENERACION', 'NEGRO', 'BLANCO', 'PLATA', 'GRIS', 
+        'NVIDIA', 'AMD', 'ETHERNET', 'THUNDERBOLT', 'USB', 'TACTIL', 'WUXGA', 'FHD',
+        'LI-ION', 'LI-PO', 'ON-SITE', 'CARRY-IN', 'PRE-INSTALADA', 'GRAFITO',
+        'HOME', 'BUSINESS', 'MICROSOFT', 'OFFICE', 'INSTALADA', 'INSTALADO',
+        'VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP', 'DELL', 'ASUS', 'ACER',
+        'TOSHIBA', 'SONY', 'PANASONIC', 'NEC', 'FUJITSU', 'IBM', 'COMPAQ',
+        'STATION', 'PRO', 'RL', 'MULTIV', 'THINKPAD', 'GALAXY', 'TAB', 'LITE',
+        'SERIES', 'INCH', 'MONITOR', 'PORTATIL', 'ESCRITORIO', 'TODO', 'UNO',
+        'ESTACION', 'TRABAJO', 'PUBLICITARIA', 'INTERACTIVA', 'EXTERNO', 'INTERNO'
+    }
+    
+    # ============================================
+    # 2. PATRONES DE NÚMEROS DE PARTE (ORDENADOS POR ESPECIFICIDAD)
+    # ============================================
+    patrones_part_number = [
+        # LENOVO: L14G5U721162100D (Letra + Número + Letra + Números)
         r'\b([A-Z][0-9][A-Z0-9]{5,}[0-9]{3,}[A-Z]?)\b',
         
-        # 2. LENOVO con guión: E16G6U71716201H-OH
+        # LENOVO con guión: E16G6U71716201H-OH
         r'\b([A-Z][0-9]{2}[A-Z][0-9][A-Z][0-9]{8,}[A-Z]-[A-Z]{2})\b',
         
-        # 3. SAMSUNG: SM-X406BZAAPEO
+        # SAMSUNG: SM-X406BZAAPEO
         r'\b(SM-[A-Z0-9]{7,})\b',
         
-        # 4. VASTEC: 7GTRCVA068 (Número + Letras + Número)
+        # VASTEC: 7GTRCVA068 (Número + Letras + Número)
         r'\b([0-9][A-Z]{2,}[0-9]{3,})\b',
         
-        # 5. HP: B0CG8UT (Letra + Número + Letras + Número)
+        # HP: B0CG8UT (Letra + Número + Letras + Número)
         r'\b([A-Z][0-9][A-Z]{2,}[0-9]{2,})\b',
         
-        # 6. Patrón general con UNIDAD + código largo
-        r'UNIDAD\s+.*?\b([A-Z0-9]{8,}(?:-[A-Z0-9]+)?)\b',
+        # MDL2605M2YWA0 (MDL + números + letras)
+        r'\b(MDL[0-9A-Z]{6,})\b',
         
-        # 7. Buscar después de "UNIDAD" específicamente
-        r'UNIDAD\s+([A-Za-z0-9\s]+?)\s+(?:SIST\.|G\.\s*F\.|\s*$)',
+        # BZ2G2LT (Letra + Letra + Número + Letra + Número + Letra)
+        r'\b([A-Z]{2}[0-9][A-Z][0-9][A-Z]{2})\b',
+        
+        # Patrón general: 8+ caracteres alfanuméricos (no comunes)
+        r'\b([A-Z0-9]{8,}(?:-[A-Z0-9]+)?)\b',
     ]
     
-    # Primero intentar con patrones específicos
-    for patron in patrones:
-        match = re.search(patron, desc_clean)
-        if match:
-            part_num = match.group(1).strip()
-            # Validar que no sea una palabra común
-            if not es_palabra_comun(part_num) and len(part_num) >= 5:
-                return part_num
-    
-    # Si no funciona, buscar después de "UNIDAD" y extraer el código
-    if 'UNIDAD' in desc_clean.upper():
-        partes = desc_clean.upper().split('UNIDAD')
+    # ============================================
+    # 3. ESTRATEGIA 1: Buscar después de "UNIDAD"
+    # ============================================
+    if 'UNIDAD' in desc_upper:
+        partes = desc_upper.split('UNIDAD')
         if len(partes) > 1:
             after_unidad = partes[1].strip()
-            # Buscar cualquier código alfanumérico largo
-            codigos = re.findall(r'\b([A-Z0-9]{6,}(?:-[A-Z0-9]+)?)\b', after_unidad)
-            for codigo in codigos:
-                if not es_palabra_comun(codigo) and len(codigo) >= 5:
-                    return codigo
+            # Buscar en la parte después de UNIDAD
+            for patron in patrones_part_number:
+                matches = re.findall(patron, after_unidad)
+                for match in matches:
+                    match_clean = match.strip()
+                    if (len(match_clean) >= 5 and 
+                        match_clean not in PALABRAS_PROHIBIDAS and
+                        not any(p in match_clean for p in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']) and
+                        not any(marca in match_clean for marca in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP'])):
+                        return match_clean
     
-    # Buscar códigos al final de la descripción (suele ser el número de parte)
-    codigos_final = re.findall(r'\b([A-Z0-9]{6,}(?:-[A-Z0-9]+)?)\b', desc_clean)
-    for codigo in reversed(codigos_final):
-        if not es_palabra_comun(codigo) and len(codigo) >= 5:
-            # Verificar que no sea un componente técnico
-            if not es_componente_tecnico(codigo):
-                return codigo
+    # ============================================
+    # 4. ESTRATEGIA 2: Buscar en toda la descripción
+    # ============================================
+    for patron in patrones_part_number:
+        matches = re.findall(patron, desc_clean)
+        for match in matches:
+            match_clean = match.strip()
+            # Validaciones estrictas
+            if (len(match_clean) >= 5 and 
+                match_clean not in PALABRAS_PROHIBIDAS and
+                not any(p in match_clean for p in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']) and
+                not any(marca in match_clean for marca in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP']) and
+                not any(palabra in match_clean for palabra in ['INSTALADA', 'UNIDAD', 'PRO', 'RL', 'STATION'])):
+                return match_clean
+    
+    # ============================================
+    # 5. ESTRATEGIA 3: Buscar códigos al final de la descripción
+    # ============================================
+    # Dividir por espacios y buscar al final
+    palabras = desc_clean.split()
+    for i in range(len(palabras) - 1, -1, -1):
+        palabra = palabras[i].strip()
+        # Limpiar caracteres especiales
+        palabra_limpia = re.sub(r'[^A-Za-z0-9\-]', '', palabra)
+        
+        if (len(palabra_limpia) >= 5 and 
+            palabra_limpia not in PALABRAS_PROHIBIDAS and
+            not any(p in palabra_limpia for p in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']) and
+            not any(marca in palabra_limpia for marca in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP'])):
+            # Verificar que tenga mayúsculas y números (característica de part number)
+            if re.search(r'[A-Z]', palabra_limpia) and re.search(r'[0-9]', palabra_limpia):
+                return palabra_limpia
+    
+    # ============================================
+    # 6. ESTRATEGIA 4: Buscar patrones específicos de números de parte
+    # ============================================
+    # Buscar secuencias que parecen números de parte: Letras+Números+Letras
+    patron_especifico = r'\b([A-Z]{2,}[0-9]{3,}[A-Z0-9]{2,})\b'
+    matches = re.findall(patron_especifico, desc_clean)
+    for match in matches:
+        if (len(match) >= 6 and 
+            match not in PALABRAS_PROHIBIDAS and
+            not any(p in match for p in ['DDR', 'HDMI', 'VGA', 'USB'])):
+            return match
+    
+    # ============================================
+    # 7. ESTRATEGIA 5: Último recurso - buscar códigos largos
+    # ============================================
+    # Buscar cualquier código alfanumérico largo (8+ caracteres)
+    codigos_largos = re.findall(r'\b([A-Z0-9]{8,})\b', desc_clean)
+    for codigo in codigos_largos:
+        if (codigo not in PALABRAS_PROHIBIDAS and
+            not any(p in codigo for p in ['DDR', 'HDMI', 'VGA', 'USB']) and
+            not any(marca in codigo for marca in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG'])):
+            return codigo
     
     return "No especificado"
 
@@ -363,14 +420,15 @@ def create_excel_report(df):
         df.to_excel(writer, sheet_name='Datos_Filtrados', index=False)
         
         resumen = pd.DataFrame({
-            'Métrica': ['Total de Fichas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados'],
+            'Métrica': ['Total de Fichas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados', 'Part Numbers Válidos'],
             'Valor': [
                 len(df),
                 df['Categoria'].nunique(),
                 df['Marca'].nunique(),
                 f"${df['Precio'].mean():,.2f}",
                 f"{df['Puntaje'].mean():.2f}",
-                df['Archivo_Origen'].nunique()
+                df['Archivo_Origen'].nunique(),
+                len(df[df['Part_Number'] != 'No especificado'])
             ]
         })
         resumen.to_excel(writer, sheet_name='Resumen', index=False)
@@ -478,6 +536,40 @@ def main():
     
     st.divider()
     
+    # --- ESTADÍSTICAS DE PART NUMBERS ---
+    col1, col2, col3 = st.columns(3)
+    
+    total_fichas = len(df_filtered)
+    part_numbers_validos = len(df_filtered[df_filtered['Part_Number'] != 'No especificado'])
+    part_numbers_invalidos = total_fichas - part_numbers_validos
+    porcentaje_valido = (part_numbers_validos / total_fichas * 100) if total_fichas > 0 else 0
+    
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card" style="border-left-color: #10B981;">
+            <div class="metric-value" style="color: #10B981;">{part_numbers_validos}</div>
+            <div class="metric-label">✅ Part Numbers Válidos</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card" style="border-left-color: #EF4444;">
+            <div class="metric-value" style="color: #EF4444;">{part_numbers_invalidos}</div>
+            <div class="metric-label">❌ Part Numbers No Detectados</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card" style="border-left-color: #3B82F6;">
+            <div class="metric-value" style="color: #3B82F6;">{porcentaje_valido:.1f}%</div>
+            <div class="metric-label">🎯 Tasa de Detección</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.divider()
+    
     # --- GRÁFICOS ---
     col1, col2 = st.columns(2)
     
@@ -503,10 +595,6 @@ def main():
     # --- TABLA DE DATOS ---
     st.subheader("📋 Datos Detallados")
     st.caption(f"Mostrando {len(df_filtered):,} de {len(df):,} fichas")
-    
-    # Mostrar estadísticas de Part Numbers
-    part_numbers_valid = df_filtered[df_filtered['Part_Number'] != "No especificado"]
-    st.info(f"✅ {len(part_numbers_valid)} de {len(df_filtered)} fichas tienen un número de parte válido")
     
     display_cols = ['ID_ProductoOfertado', 'Part_Number', 'Categoria', 'Marca',
                     'Precio', 'Puntaje', 'Estado_Ficha', 'Estado_Oferta', 

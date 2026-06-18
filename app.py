@@ -7,10 +7,9 @@ from io import BytesIO
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-from openpyxl.styles import PatternFill
 import requests
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
+# --- CONFIGURACIÓN ---
 st.set_page_config(
     page_title="Dashboard de Fichas Técnicas",
     page_icon="📊",
@@ -46,10 +45,24 @@ st.markdown("""
         font-size: 0.9rem;
         color: #4B5563;
     }
+    .info-box {
+        padding: 1rem;
+        background-color: #DBEAFE;
+        border-radius: 0.5rem;
+        border-left: 5px solid #3B82F6;
+        margin: 1rem 0;
+    }
+    .part-number-highlight {
+        background-color: #FEF3C7;
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.25rem;
+        font-weight: bold;
+        font-family: monospace;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- DICCIONARIOS Y CONSTANTES ---
+# --- DICCIONARIOS ---
 CATEGORIAS_OFICIALES = {
     '11743': 'COMPUTADORA PORTATIL',
     '11744': 'ESTACION DE TRABAJO PORTATIL',
@@ -78,19 +91,9 @@ MARCAS_COMPLETAS = [
     'NEW KRAL', 'TLC'
 ]
 
-# --- FUNCIÓN MEJORADA PARA EXTRAER NÚMERO DE PARTE ---
-def extract_part_number(descripcion):
-    """
-    Extrae el número de parte de la descripción usando patrones específicos.
-    Basado en los ejemplos proporcionados.
-    """
-    if not descripcion or not isinstance(descripcion, str):
-        return "No especificado"
-    
-    # Limpiar la descripción
-    desc_clean = descripcion.replace('&#160;', ' ').replace('&quot;', '"')
-    
-    # Palabras comunes que no son números de parte
+# --- FUNCIONES MEJORADAS PARA NÚMEROS DE PARTE ---
+def es_palabra_comun(texto):
+    """Verifica si el texto es una palabra común que no es número de parte."""
     palabras_comunes = [
         'PROCESADOR', 'COMPUTADORA', 'PANTALLA', 'ALMACENAMIENTO', 
         'TECLADO', 'MOUSE', 'MONITOR', 'TABLETA', 'MEMORIA', 'DISCO',
@@ -98,76 +101,80 @@ def extract_part_number(descripcion):
         'BLUETOOTH', 'HDMI', 'VGA', 'WINDOWS', 'ANDROID', 'BATERIA',
         'PESO', 'CAMARA', 'RAEE', 'COLECTIVO', 'GARANTIA', 'MESES',
         'SIST', 'OPER', 'DOWNGRADE', 'OPTICA', 'OFIMATICA', 'MANEJO',
-        'RETROILUMINACION', 'PIXELES', 'UNIDAD', 'GENERACION'
+        'RETROILUMINACION', 'PIXELES', 'UNIDAD', 'GENERACION', 'NEGRO',
+        'BLANCO', 'PLATA', 'GRIS', 'NVIDIA', 'AMD', 'ETHERNET', 
+        'THUNDERBOLT', 'USB', 'TACTIL', 'WUXGA', 'FHD', 'LI-ION', 
+        'LI-PO', 'ON-SITE', 'CARRY-IN', 'PRE-INSTALADA', 'GRAFITO',
+        'HOME', 'BUSINESS', 'MICROSOFT', 'OFFICE'
     ]
+    return texto.upper() in palabras_comunes
+
+def es_componente_tecnico(texto):
+    """Verifica si el texto es un componente técnico común."""
+    componentes = ['DDR', 'HDMI', 'VGA', 'USB', 'LAN', 'WLAN', 'SSD', 'LCD', 'LED', 'RAM']
+    return any(comp in texto.upper() for comp in componentes)
+
+def extract_part_number(descripcion):
+    """
+    Extrae el número de parte de la descripción usando patrones específicos.
+    Basado EXACTAMENTE en los ejemplos proporcionados.
+    """
+    if not descripcion or not isinstance(descripcion, str):
+        return "No especificado"
     
-    # Estrategia 1: Buscar específicamente después de "UNIDAD" (más confiable)
-    unidad_patterns = [
-        r'UNIDAD\s+(?:[A-Za-z0-9\s]+?)?\s*([A-Z0-9]{4,}(?:-[A-Z0-9]+)?)',
-        r'UNIDAD\s+([A-Za-z0-9\-]{6,})',
-        r'UNIDAD\s+.*?\b([A-Z0-9]{5,}(?:-[A-Z0-9]+)?)\b'
-    ]
+    # Limpiar la descripción
+    desc_clean = descripcion.replace('&#160;', ' ').replace('&quot;', '"').replace('&#209;', 'Ñ')
     
-    for pattern in unidad_patterns:
-        match = re.search(pattern, desc_clean)
-        if match:
-            part_num = match.group(1).strip()
-            if part_num.upper() not in palabras_comunes and len(part_num) >= 5:
-                return part_num
-    
-    # Estrategia 2: Patrones específicos basados en ejemplos
-    patrones_especificos = [
-        # LENOVO: L14G5U721162100D, E16G6U71716201H-OH
-        r'\b([A-Z][0-9][A-Z0-9]{4,}[A-Z0-9\-]{3,})\b',
+    # PATRONES ESPECÍFICOS BASADOS EN LOS EJEMPLOS
+    patrones = [
+        # 1. LENOVO: L14G5U721162100D (Letra + Número + Letra + Número...)
+        r'\b([A-Z][0-9][A-Z0-9]{5,}[0-9]{3,}[A-Z]?)\b',
         
-        # SAMSUNG: SM-X406BZAAPEO
-        r'\b(SM-[A-Z0-9]{5,})\b',
+        # 2. LENOVO con guión: E16G6U71716201H-OH
+        r'\b([A-Z][0-9]{2}[A-Z][0-9][A-Z][0-9]{8,}[A-Z]-[A-Z]{2})\b',
         
-        # HP: B0CG8UT
-        r'\b([A-Z][0-9][A-Z0-9]{4,})\b',
+        # 3. SAMSUNG: SM-X406BZAAPEO
+        r'\b(SM-[A-Z0-9]{7,})\b',
         
-        # VASTEC: 7GTRCVA068
+        # 4. VASTEC: 7GTRCVA068 (Número + Letras + Número)
         r'\b([0-9][A-Z]{2,}[0-9]{3,})\b',
         
-        # Patrón general con guión: EJEMPLO-12345
-        r'\b([A-Z]{2,}-[A-Z0-9]{5,})\b',
+        # 5. HP: B0CG8UT (Letra + Número + Letras + Número)
+        r'\b([A-Z][0-9][A-Z]{2,}[0-9]{2,})\b',
         
-        # Patrón alfanumérico largo (mínimo 8 caracteres)
-        r'\b([A-Z]{2,}[0-9]{2,}[A-Z0-9\-]{4,})\b',
+        # 6. Patrón general con UNIDAD + código largo
+        r'UNIDAD\s+.*?\b([A-Z0-9]{8,}(?:-[A-Z0-9]+)?)\b',
+        
+        # 7. Buscar después de "UNIDAD" específicamente
+        r'UNIDAD\s+([A-Za-z0-9\s]+?)\s+(?:SIST\.|G\.\s*F\.|\s*$)',
     ]
     
-    for patron in patrones_especificos:
+    # Primero intentar con patrones específicos
+    for patron in patrones:
         match = re.search(patron, desc_clean)
         if match:
             part_num = match.group(1).strip()
-            if part_num.upper() not in palabras_comunes and len(part_num) >= 5:
+            # Validar que no sea una palabra común
+            if not es_palabra_comun(part_num) and len(part_num) >= 5:
                 return part_num
     
-    # Estrategia 3: Buscar códigos que parezcan números de parte
-    # Buscar secuencias: letras + números + letras, con longitud >= 6
-    codigos = re.findall(r'\b([A-Z]{2,}[0-9]{2,}[A-Z0-9\-]{2,})\b', desc_clean)
-    for codigo in codigos:
-        if codigo.upper() not in palabras_comunes and len(codigo) >= 6:
-            # Verificar que no sea una palabra común como "DDR4" o "HDMI"
-            if not any(palabra in codigo.upper() for palabra in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']):
-                return codigo
+    # Si no funciona, buscar después de "UNIDAD" y extraer el código
+    if 'UNIDAD' in desc_clean.upper():
+        partes = desc_clean.upper().split('UNIDAD')
+        if len(partes) > 1:
+            after_unidad = partes[1].strip()
+            # Buscar cualquier código alfanumérico largo
+            codigos = re.findall(r'\b([A-Z0-9]{6,}(?:-[A-Z0-9]+)?)\b', after_unidad)
+            for codigo in codigos:
+                if not es_palabra_comun(codigo) and len(codigo) >= 5:
+                    return codigo
     
-    # Estrategia 4: Buscar después de "UNIDAD" sin patrón específico
-    unidad_index = desc_clean.upper().find('UNIDAD')
-    if unidad_index != -1:
-        resto = desc_clean[unidad_index + 6:].strip()
-        # Buscar el primer código alfanumérico largo
-        codigos_resto = re.findall(r'\b([A-Z0-9]{6,}(?:-[A-Z0-9]+)?)\b', resto)
-        for codigo in codigos_resto:
-            if codigo.upper() not in palabras_comunes and len(codigo) >= 5:
-                return codigo
-    
-    # Estrategia 5: Último código alfanumérico largo en la descripción
-    todos_codigos = re.findall(r'\b([A-Z0-9]{5,}(?:-[A-Z0-9]+)?)\b', desc_clean)
-    for codigo in reversed(todos_codigos):  # De atrás hacia adelante
-        if codigo.upper() not in palabras_comunes and len(codigo) >= 5:
-            # Verificar que no sea un componente técnico común
-            if not any(tech in codigo.upper() for tech in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN', 'WLAN']):
+    # Buscar códigos al final de la descripción (suele ser el número de parte)
+    codigos_final = re.findall(r'\b([A-Z0-9]{6,}(?:-[A-Z0-9]+)?)\b', desc_clean)
+    for codigo in reversed(codigos_final):
+        if not es_palabra_comun(codigo) and len(codigo) >= 5:
+            # Verificar que no sea un componente técnico
+            if not es_componente_tecnico(codigo):
                 return codigo
     
     return "No especificado"
@@ -188,6 +195,7 @@ def extract_brand(descripcion, marcas_list):
             return marca
     return "OTROS"
 
+# --- FUNCIONES DE CARGA ---
 def get_all_zip_files_from_github(repo_url):
     """Obtiene todos los archivos ZIP del repositorio."""
     try:
@@ -346,6 +354,7 @@ def load_all_data_from_repo(repo_url):
     else:
         return None
 
+# --- FUNCIONES DE EXPORTACIÓN ---
 def create_excel_report(df):
     """Crea un archivo Excel con el dashboard."""
     output = BytesIO()
@@ -495,9 +504,13 @@ def main():
     st.subheader("📋 Datos Detallados")
     st.caption(f"Mostrando {len(df_filtered):,} de {len(df):,} fichas")
     
+    # Mostrar estadísticas de Part Numbers
+    part_numbers_valid = df_filtered[df_filtered['Part_Number'] != "No especificado"]
+    st.info(f"✅ {len(part_numbers_valid)} de {len(df_filtered)} fichas tienen un número de parte válido")
+    
     display_cols = ['ID_ProductoOfertado', 'Part_Number', 'Categoria', 'Marca',
-                    'Descripcion', 'Precio', 'Puntaje', 'Estado_Ficha', 
-                    'Estado_Oferta', 'Fecha_Publicacion', 'Archivo_Origen']
+                    'Precio', 'Puntaje', 'Estado_Ficha', 'Estado_Oferta', 
+                    'Fecha_Publicacion', 'Archivo_Origen']
     
     st.dataframe(
         df_filtered[display_cols],
@@ -506,7 +519,6 @@ def main():
             "Part_Number": st.column_config.TextColumn("Part Number"),
             "Categoria": st.column_config.TextColumn("Categoría"),
             "Marca": st.column_config.TextColumn("Marca"),
-            "Descripcion": st.column_config.TextColumn("Descripción", width='large'),
             "Precio": st.column_config.NumberColumn("Precio (USD)", format="$%.2f"),
             "Puntaje": st.column_config.NumberColumn("Puntaje", format="%.2f"),
             "Estado_Ficha": st.column_config.TextColumn("Estado Ficha"),

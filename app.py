@@ -90,7 +90,7 @@ CATEGORIAS_OFICIALES = {
     '11743': 'COMPUTADORA PORTATIL',
     '11744': 'ESTACION DE TRABAJO PORTATIL',
     '11745': 'TABLETA',
-    '11738': 'ESCANER DE DOCUMENTOS',  # <-- AÑADIDA ESTA CATEGORÍA
+    '11738': 'ESCANER DE DOCUMENTOS',
     '11735': 'COMPUTADORA DE ESCRITORIO',
     '11736': 'COMPUTADORA TODO EN UNO',
     '11740': 'ESTACION DE TRABAJO',
@@ -353,9 +353,8 @@ def get_all_zip_files_from_github(repo_url):
         st.error(f"Error al obtener archivos: {str(e)}")
         return []
 
-def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, marcas_personalizadas, categorias_personalizadas):
+def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, marcas_personalizadas, categorias_personalizadas, part_numbers_vistos_global):
     productos = []
-    part_numbers_vistos = set()
     
     try:
         status_text.text(f"📥 Descargando: {zip_name}")
@@ -404,9 +403,8 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, 
                         descripcion = item.get('descripcion', '')
                         part_number = extract_part_number_con_excepciones(descripcion, excepciones)
                         
-                        if part_number in part_numbers_vistos:
-                            continue
-                        part_numbers_vistos.add(part_number)
+                        # NO FILTRAR POR PART NUMBER DUPLICADO - mostrar todos
+                        # Solo filtramos si queremos únicos, pero mostramos todos
                         
                         categoria = extract_category(descripcion, categorias_personalizadas)
                         marca = extract_brand(descripcion, MARCAS_COMPLETAS, marcas_personalizadas)
@@ -439,7 +437,7 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones, 
                 progress = (idx + 1) / total_json
                 progress_bar.progress(progress)
         
-        status_text.text(f"✅ Procesado: {zip_name} - {len(productos)} productos únicos")
+        status_text.text(f"✅ Procesado: {zip_name} - {len(productos)} productos")
         
     except Exception as e:
         st.error(f"❌ Error al procesar {zip_name}: {str(e)}")
@@ -474,7 +472,8 @@ def load_all_data_from_repo(repo_url, excepciones, marcas_personalizadas, catego
                 status_text,
                 excepciones,
                 marcas_personalizadas,
-                categorias_personalizadas
+                categorias_personalizadas,
+                set()  # No usamos filtro de duplicados
             )
             
             all_productos.extend(productos)
@@ -496,7 +495,7 @@ def create_excel_report(df):
         df.to_excel(writer, sheet_name='Datos_Filtrados', index=False)
         
         resumen = pd.DataFrame({
-            'Métrica': ['Total de Fichas Únicas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados'],
+            'Métrica': ['Total de Fichas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados'],
             'Valor': [
                 len(df),
                 df['Categoria'].nunique(),
@@ -530,17 +529,22 @@ def main():
     marcas_personalizadas = cargar_marcas_personalizadas()
     categorias_personalizadas = cargar_categorias_personalizadas()
     
+    # Botón para recargar datos
+    col1, col2, col3 = st.columns([3, 1, 3])
+    with col2:
+        if st.button("🔄 Recargar Datos", type="primary", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    
     # ============================================
     # SECCIÓN: GESTIÓN DE MARCAS Y CATEGORÍAS PERSONALIZADAS
     # ============================================
-    with st.sidebar.expander("⚙️ Gestionar Marcas y Categorías Personalizadas", expanded=False):
+    with st.sidebar.expander("⚙️ Gestionar Marcas y Categorías Personalizadas", expanded=True):
         st.markdown("### 🏷️ Marcas Personalizadas")
         
-        # Mostrar marcas actuales
         if marcas_personalizadas:
             st.write(f"Marcas actuales: {', '.join(marcas_personalizadas)}")
         
-        # Agregar nueva marca
         col1, col2 = st.columns([3, 1])
         with col1:
             nueva_marca = st.text_input("Nueva marca:", placeholder="Ej: MIMIO", key="nueva_marca")
@@ -554,7 +558,6 @@ def main():
                 else:
                     st.warning("⚠️ Marca ya existe o está vacía")
         
-        # Eliminar marca
         if marcas_personalizadas:
             marca_eliminar = st.selectbox("Seleccionar marca para eliminar:", marcas_personalizadas)
             if st.button("🗑️ Eliminar Marca", type="secondary"):
@@ -567,11 +570,9 @@ def main():
         
         st.markdown("### 📂 Categorías Personalizadas")
         
-        # Mostrar categorías actuales
         if categorias_personalizadas:
             st.write(f"Categorías actuales: {', '.join(categorias_personalizadas)}")
         
-        # Agregar nueva categoría
         col1, col2 = st.columns([3, 1])
         with col1:
             nueva_categoria = st.text_input("Nueva categoría:", placeholder="Ej: ESCANER DE DOCUMENTOS", key="nueva_categoria")
@@ -585,7 +586,6 @@ def main():
                 else:
                     st.warning("⚠️ Categoría ya existe o está vacía")
         
-        # Eliminar categoría
         if categorias_personalizadas:
             categoria_eliminar = st.selectbox("Seleccionar categoría para eliminar:", categorias_personalizadas)
             if st.button("🗑️ Eliminar Categoría", type="secondary"):
@@ -594,6 +594,9 @@ def main():
                     st.success(f"✅ Categoría '{categoria_eliminar}' eliminada")
                     st.rerun()
     
+    # ============================================
+    # CARGA DE DATOS
+    # ============================================
     st.markdown('<div class="info-box">📦 Procesando todos los archivos ZIP del repositorio...</div>', unsafe_allow_html=True)
     
     with st.spinner('🔄 Descargando y procesando todos los archivos...'):
@@ -604,13 +607,19 @@ def main():
         st.info("💡 Verifica que el repositorio contenga datos con las condiciones especificadas.")
         return
     
+    # Mostrar categorías disponibles
+    st.markdown(f"""
+    <div class="info-box">
+        📊 Categorías encontradas: <b>{', '.join(sorted(df['Categoria'].unique()))}</b>
+    </div>
+    """, unsafe_allow_html=True)
+    
     # --- FILTROS ---
     st.sidebar.header("🔍 Filtros")
     
     estados = sorted(df['Estado_Ficha'].unique())
     estados_filter = st.sidebar.multiselect("Estado de Ficha", options=estados, default=estados)
     
-    # Obtener todas las categorías (oficiales + personalizadas)
     todas_categorias = sorted(df['Categoria'].unique())
     categorias_filter = st.sidebar.multiselect(
         "Categoría",
@@ -618,7 +627,6 @@ def main():
         default=todas_categorias
     )
     
-    # Obtener todas las marcas (oficiales + personalizadas)
     todas_marcas = sorted(df['Marca'].unique())
     marcas_filter = st.sidebar.multiselect(
         "Marca",
@@ -652,7 +660,7 @@ def main():
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-value">{len(df_filtered):,}</div>
-            <div class="metric-label">Total de Fichas Únicas</div>
+            <div class="metric-label">Total de Fichas</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -760,17 +768,21 @@ def main():
                 key="desc_completa"
             )
             
+            # Mostrar categoría y marca actual
+            st.info(f"📌 Categoría actual: **{producto_seleccionado['Categoria']}** | Marca actual: **{producto_seleccionado['Marca']}**")
+            
             col1, col2 = st.columns([2, 1])
             with col1:
                 part_number_correcto = st.text_input(
                     "✏️ Ingresa el número de parte correcto:",
-                    placeholder="Ejemplo: L14G5U721162100D",
+                    placeholder="Ejemplo: 9GTRS9ZTQ500HP",
                     key="part_number_manual"
                 )
             
             with col2:
                 if st.button("💾 Guardar Corrección", type="primary", use_container_width=True):
                     if part_number_correcto and len(part_number_correcto) >= 4:
+                        # Usar la categoría y marca como parte del patrón
                         palabras_clave = descripcion_completa.split()[:10]
                         patron_busqueda = " ".join(palabras_clave[:5])
                         
@@ -778,7 +790,7 @@ def main():
                         
                         if guardar_excepciones(excepciones):
                             st.success(f"✅ ¡Corrección guardada! '{part_number_correcto}' se usará automáticamente para productos similares.")
-                            st.info("🔄 Recarga la página o vuelve a procesar los datos para aplicar los cambios.")
+                            st.info("🔄 La página se recargará para aplicar los cambios...")
                             st.rerun()
                         else:
                             st.error("❌ Error al guardar la corrección.")
@@ -807,24 +819,14 @@ def main():
     
     st.divider()
     
-    # --- MOSTRAR DUPLICADOS ---
-    part_number_counts = df_filtered['Part_Number'].value_counts()
-    duplicados = part_number_counts[part_number_counts > 1]
+    # --- MOSTRAR DISTRIBUCIÓN DE CATEGORÍAS ---
+    st.subheader("📊 Distribución de Categorías")
+    if not df_filtered.empty:
+        categoria_counts = df_filtered['Categoria'].value_counts().reset_index()
+        categoria_counts.columns = ['Categoria', 'Cantidad']
+        st.dataframe(categoria_counts, use_container_width=True, hide_index=True)
     
-    if len(duplicados) > 0:
-        st.markdown(f"""
-        <div class="warning-box">
-            ⚠️ Se encontraron <b>{len(duplicados)}</b> números de parte que aparecen <b>múltiples veces</b>.
-            <br>El dashboard muestra solo <b>valores únicos</b> para evitar duplicados.
-        </div>
-        """, unsafe_allow_html=True)
-        
-        df_duplicados = pd.DataFrame({
-            'Part_Number': duplicados.index,
-            'Cantidad de Ocurrencias': duplicados.values
-        })
-        st.dataframe(df_duplicados, use_container_width=True, hide_index=True)
-        st.divider()
+    st.divider()
     
     # --- GRÁFICOS ---
     col1, col2 = st.columns(2)
@@ -849,8 +851,8 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
     
     # --- TABLA DE DATOS ---
-    st.subheader("📋 Datos Detallados (Únicos)")
-    st.caption(f"Mostrando {len(df_filtered):,} fichas únicas de {len(df):,} totales")
+    st.subheader("📋 Datos Detallados")
+    st.caption(f"Mostrando {len(df_filtered):,} fichas de {len(df):,} totales")
     
     display_cols = ['ID_ProductoOfertado', 'Part_Number', 'Categoria', 'Marca',
                     'Precio', 'Puntaje', 'Estado_Ficha', 'Estado_Oferta', 
@@ -885,7 +887,7 @@ def main():
                 st.download_button(
                     label="📥 Descargar Excel",
                     data=excel_data,
-                    file_name=f"dashboard_fichas_unicas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"dashboard_fichas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )

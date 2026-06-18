@@ -66,6 +66,13 @@ st.markdown("""
         border-left: 5px solid #F59E0B;
         margin: 1rem 0;
     }
+    .danger-box {
+        padding: 1rem;
+        background-color: #FEE2E2;
+        border-radius: 0.5rem;
+        border-left: 5px solid #EF4444;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -100,22 +107,12 @@ MARCAS_COMPLETAS = [
 
 # --- FUNCIÓN DEFINITIVA PARA NÚMEROS DE PARTE ---
 def extract_part_number(descripcion):
-    """
-    Función DEFINITIVA para extraer números de parte.
-    - Ignora resoluciones de pantalla
-    - Detecta números con # (DX5R4LS#ABM)
-    - NO repite números de parte (solo devuelve el primero válido)
-    """
     if not descripcion or not isinstance(descripcion, str):
         return "No especificado"
     
-    # Limpiar descripción
     desc_clean = descripcion.replace('&#160;', ' ').replace('&quot;', '"').replace('&#209;', 'Ñ')
     desc_upper = desc_clean.upper()
     
-    # ============================================
-    # 1. LISTA NEGRA EXTENDIDA
-    # ============================================
     PALABRAS_PROHIBIDAS = {
         'PROCESADOR', 'COMPUTADORA', 'PANTALLA', 'ALMACENAMIENTO', 'TECLADO', 'MOUSE', 
         'MONITOR', 'TABLETA', 'MEMORIA', 'DISCO', 'INTEL', 'CORE', 'ULTRA', 'DDR', 
@@ -133,64 +130,32 @@ def extract_part_number(descripcion):
         'SERIES', 'INCH', 'MONITOR', 'PORTATIL', 'ESCRITORIO', 'TODO', 'UNO',
         'ESTACION', 'TRABAJO', 'PUBLICITARIA', 'INTERACTIVA', 'EXTERNO', 'INTERNO',
         'INCLUIDO', 'ENTERPRISE', 'JELLYFISH', 'COMMANDER', 'CROSSTEK',
-        'FORESTER', 'FORESTERG2', 'PREINSTALADA', 'GRAFITO',
-        # RESOLUCIONES
+        'FORESTER', 'FORESTERG2', 'PREINSTALADA',
         '1920X1200', '1920X1080', '2560X1440', '2560X1080', '2880X1800',
         '1366X768', '3840X2160', '3440X1440', '2560X1600', '2048X1536',
         '1600X900', '1280X800', '1024X768', '800X600'
     }
     
-    # ============================================
-    # 2. PATRONES DE NÚMEROS DE PARTE
-    # ============================================
     patrones_part_number = [
-        # Con #: DX5R4LS#ABM
         r'\b([A-Z0-9]+#[A-Z0-9]+)\b',
-        
-        # RG24FIM6C, RG27FIM6C, RG25FIM6C, RM24FIM6C, etc.
         r'\b(R[GM][0-9]{2}[A-Z]{3,}[0-9][A-Z])\b',
         r'\b(R[PG][0-9]{2,3}[A-Z]{3,}[0-9][A-Z])\b',
         r'\b(R[PG][0-9]{2,3}[A-Z]{2,}[0-9][A-Z])\b',
-        
-        # LENOVO
         r'\b([A-Z][0-9][A-Z0-9]{5,}[0-9]{3,}[A-Z]?)\b',
         r'\b([A-Z][0-9]{2}[A-Z][0-9][A-Z][0-9]{8,}[A-Z]-[A-Z]{2})\b',
-        
-        # SAMSUNG
         r'\b(SM-[A-Z0-9]{7,})\b',
-        
-        # VASTEC
         r'\b([0-9][A-Z]{2,}[0-9]{3,}[A-Z0-9]*)\b',
         r'\b([0-9][A-Z]{2,}[A-Z0-9]{4,})\b',
-        
-        # HP
         r'\b([A-Z][0-9][A-Z]{2,}[0-9]{2,})\b',
-        
-        # MDL/MDP
         r'\b(MD[LP][0-9]{4}[A-Z0-9]{6,})\b',
-        
-        # PCAD
         r'\b(PCAD3VP[0-9]{4}[A-Z]{2,}[A-Z]{2})\b',
-        
-        # ALL
         r'\b(ALL[0-9]{2}[A-Z]{3,}[A-Z0-9]{5,})\b',
-        
-        # N50SG6U7161, M70SG6U743162000H
         r'\b([A-Z][0-9]{2}[A-Z]{2}[A-Z][0-9]{4,})\b',
-        
-        # AB3S6LS, A95B6LSABM-SD
         r'\b([A-Z]{2,}[0-9][A-Z]{2,}[0-9]{2,}[A-Z]*(?:-[A-Z]{2})?)\b',
-        
-        # 90PF04U1
         r'\b([0-9]{2}[A-Z]{2}[0-9]{2}[A-Z][0-9])\b',
-        
-        # Patrón general
         r'\b([A-Z0-9]{8,}(?:-[A-Z0-9]+)?)\b',
     ]
     
-    # ============================================
-    # 3. FILTROS ADICIONALES
-    # ============================================
     def es_part_number_valido(texto):
         if not texto or len(texto) < 5:
             return False
@@ -218,10 +183,6 @@ def extract_part_number(descripcion):
             return False
         
         return True
-    
-    # ============================================
-    # 4. ESTRATEGIAS DE EXTRACCIÓN
-    # ============================================
     
     # Estrategia 1: Después de "UNIDAD"
     if 'UNIDAD' in desc_upper:
@@ -308,7 +269,7 @@ def get_all_zip_files_from_github(repo_url):
 
 def process_zip_file(zip_url, zip_name, progress_bar, status_text):
     productos = []
-    part_numbers_vistos = set()  # Para evitar duplicados
+    part_numbers_vistos = set()
     
     try:
         status_text.text(f"📥 Descargando: {zip_name}")
@@ -357,7 +318,6 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                         descripcion = item.get('descripcion', '')
                         part_number = extract_part_number(descripcion)
                         
-                        # Si el part number ya fue visto, no lo agregamos de nuevo
                         if part_number in part_numbers_vistos:
                             continue
                         part_numbers_vistos.add(part_number)
@@ -574,7 +534,7 @@ def main():
         st.markdown(f"""
         <div class="metric-card" style="border-left-color: #10B981;">
             <div class="metric-value" style="color: #10B981;">{part_numbers_validos}</div>
-            <div class="metric-label">✅ Part Numbers Únicos</div>
+            <div class="metric-label">✅ Part Numbers Válidos</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -596,7 +556,54 @@ def main():
     
     st.divider()
     
-    # --- MOSTRAR DUPLICADOS ENCONTRADOS ---
+    # --- ANÁLISIS DE "NO DETECTADOS" ---
+    st.subheader("🔍 Productos sin Número de Parte Detectado")
+    
+    no_detectados = df_filtered[df_filtered['Part_Number'] == 'No especificado']
+    
+    if len(no_detectados) > 0:
+        st.markdown(f"""
+        <div class="danger-box">
+            ⚠️ <b>{len(no_detectados)} productos</b> no tienen número de parte detectado ({len(no_detectados)/total_fichas*100:.1f}% del total).
+            <br>Esto puede deberse a que el número de parte tiene un formato no reconocido o no está presente en la descripción.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.expander(f"📋 Ver {min(10, len(no_detectados))} ejemplos de productos NO detectados"):
+            st.dataframe(
+                no_detectados[['ID_ProductoOfertado', 'Marca', 'Categoria', 'Descripcion']].head(10),
+                column_config={
+                    "ID_ProductoOfertado": "ID Producto",
+                    "Marca": "Marca",
+                    "Categoria": "Categoría",
+                    "Descripcion": st.column_config.TextColumn("Descripción", width='large'),
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            # Botón para exportar todos los no detectados
+            if st.button("📥 Exportar TODOS los no detectados a Excel"):
+                no_detectados[['ID_ProductoOfertado', 'Marca', 'Categoria', 'Descripcion']].to_excel(
+                    "no_detectados.xlsx", index=False
+                )
+                with open("no_detectados.xlsx", "rb") as f:
+                    st.download_button(
+                        label="📥 Descargar Excel",
+                        data=f,
+                        file_name=f"no_detectados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+    else:
+        st.markdown("""
+        <div class="success-box">
+            ✅ ¡Todos los productos tienen número de parte detectado!
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # --- MOSTRAR DUPLICADOS ---
     part_number_counts = df_filtered['Part_Number'].value_counts()
     duplicados = part_number_counts[part_number_counts > 1]
     
@@ -604,12 +611,10 @@ def main():
         st.markdown(f"""
         <div class="warning-box">
             ⚠️ Se encontraron <b>{len(duplicados)}</b> números de parte que aparecen <b>múltiples veces</b> en diferentes fichas.
-            <br>Esto puede deberse a que el mismo producto aparece en varios JSON o archivos ZIP.
             <br>El dashboard muestra solo <b>valores únicos</b> para evitar duplicados.
         </div>
         """, unsafe_allow_html=True)
         
-        # Mostrar tabla de duplicados
         df_duplicados = pd.DataFrame({
             'Part_Number': duplicados.index,
             'Cantidad de Ocurrencias': duplicados.values

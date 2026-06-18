@@ -52,20 +52,6 @@ st.markdown("""
         border-left: 5px solid #3B82F6;
         margin: 1rem 0;
     }
-    .success-box {
-        padding: 1rem;
-        background-color: #D1FAE5;
-        border-radius: 0.5rem;
-        border-left: 5px solid #10B981;
-        margin: 1rem 0;
-    }
-    .part-number-highlight {
-        background-color: #FEF3C7;
-        padding: 0.2rem 0.5rem;
-        border-radius: 0.25rem;
-        font-weight: bold;
-        font-family: monospace;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -101,8 +87,8 @@ MARCAS_COMPLETAS = [
 # --- FUNCIÓN DEFINITIVA PARA NÚMEROS DE PARTE ---
 def extract_part_number(descripcion):
     """
-    Función ULTRA-OPTIMIZADA para extraer números de parte.
-    Analiza 100+ patrones y filtros para identificar SOLO números de parte.
+    Función DEFINITIVA para extraer números de parte.
+    Basada en análisis de 100+ ejemplos reales.
     """
     if not descripcion or not isinstance(descripcion, str):
         return "No especificado"
@@ -112,7 +98,7 @@ def extract_part_number(descripcion):
     desc_upper = desc_clean.upper()
     
     # ============================================
-    # 1. LISTA NEGRA DE PALABRAS COMUNES (NUNCA SON PART NUMBERS)
+    # 1. LISTA NEGRA EXTENDIDA (NUNCA SON PART NUMBERS)
     # ============================================
     PALABRAS_PROHIBIDAS = {
         'PROCESADOR', 'COMPUTADORA', 'PANTALLA', 'ALMACENAMIENTO', 'TECLADO', 'MOUSE', 
@@ -124,18 +110,27 @@ def extract_part_number(descripcion):
         'NVIDIA', 'AMD', 'ETHERNET', 'THUNDERBOLT', 'USB', 'TACTIL', 'WUXGA', 'FHD',
         'LI-ION', 'LI-PO', 'ON-SITE', 'CARRY-IN', 'PRE-INSTALADA', 'GRAFITO',
         'HOME', 'BUSINESS', 'MICROSOFT', 'OFFICE', 'INSTALADA', 'INSTALADO',
+        
+        # Marcas
         'VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP', 'DELL', 'ASUS', 'ACER',
         'TOSHIBA', 'SONY', 'PANASONIC', 'NEC', 'FUJITSU', 'IBM', 'COMPAQ',
+        'CROSSTEK', 'FORESTER', 'FORESTERG2',
+        
+        # Modelos y palabras comunes
         'STATION', 'PRO', 'RL', 'MULTIV', 'THINKPAD', 'GALAXY', 'TAB', 'LITE',
         'SERIES', 'INCH', 'MONITOR', 'PORTATIL', 'ESCRITORIO', 'TODO', 'UNO',
-        'ESTACION', 'TRABAJO', 'PUBLICITARIA', 'INTERACTIVA', 'EXTERNO', 'INTERNO'
+        'ESTACION', 'TRABAJO', 'PUBLICITARIA', 'INTERACTIVA', 'EXTERNO', 'INTERNO',
+        
+        # NUEVAS PALABRAS PROHIBIDAS
+        'INCLUIDO', 'ENTERPRISE', 'JELLYFISH', 'COMMANDER', '1920X1200', '2880X1800',
+        '1920X1080', '1366X768', 'FORESTER', 'FORESTERG2', 'CROSSTEK', 'PREINSTALADA'
     }
     
     # ============================================
-    # 2. PATRONES DE NÚMEROS DE PARTE (ORDENADOS POR ESPECIFICIDAD)
+    # 2. PATRONES DE NÚMEROS DE PARTE
     # ============================================
     patrones_part_number = [
-        # LENOVO: L14G5U721162100D (Letra + Número + Letra + Números)
+        # LENOVO: L14G5U721162100D
         r'\b([A-Z][0-9][A-Z0-9]{5,}[0-9]{3,}[A-Z]?)\b',
         
         # LENOVO con guión: E16G6U71716201H-OH
@@ -144,100 +139,109 @@ def extract_part_number(descripcion):
         # SAMSUNG: SM-X406BZAAPEO
         r'\b(SM-[A-Z0-9]{7,})\b',
         
-        # VASTEC: 7GTRCVA068 (Número + Letras + Número)
-        r'\b([0-9][A-Z]{2,}[0-9]{3,})\b',
+        # VASTEC: 7GTRCVA068, 7GTRISBSQ50072, 7WTBISISQ5005K
+        r'\b([0-9][A-Z]{2,}[0-9]{3,}[A-Z0-9]*)\b',
+        r'\b([0-9][A-Z]{2,}[A-Z0-9]{4,})\b',
         
-        # HP: B0CG8UT (Letra + Número + Letras + Número)
+        # HP: B0CG8UT
         r'\b([A-Z][0-9][A-Z]{2,}[0-9]{2,})\b',
         
-        # MDL2605M2YWA0 (MDL + números + letras)
-        r'\b(MDL[0-9A-Z]{6,})\b',
+        # MDL/MDP: MDL2605M2YWA0, MDP2605O4YO4E
+        r'\b(MD[LP][0-9]{4}[A-Z0-9]{6,})\b',
         
-        # BZ2G2LT (Letra + Letra + Número + Letra + Número + Letra)
-        r'\b([A-Z]{2}[0-9][A-Z][0-9][A-Z]{2})\b',
+        # PCAD: PCAD3VP551KMOWH
+        r'\b(PCAD3VP[0-9]{4}[A-Z]{2,}[A-Z]{2})\b',
         
-        # Patrón general: 8+ caracteres alfanuméricos (no comunes)
+        # ALL: ALL26KASIC7161T
+        r'\b(ALL[0-9]{2}[A-Z]{3,}[A-Z0-9]{5,})\b',
+        
+        # N50SG6U7161, M70SG6U743162000H
+        r'\b([A-Z][0-9]{2}[A-Z]{2}[A-Z][0-9]{4,})\b',
+        
+        # AB3S6LS, A95B6LSABM-SD
+        r'\b([A-Z]{2,}[0-9][A-Z]{2,}[0-9]{2,}[A-Z]*(?:-[A-Z]{2})?)\b',
+        
+        # 90PF04U1
+        r'\b([0-9]{2}[A-Z]{2}[0-9]{2}[A-Z][0-9])\b',
+        
+        # Patrón general: 8+ caracteres alfanuméricos
         r'\b([A-Z0-9]{8,}(?:-[A-Z0-9]+)?)\b',
     ]
     
     # ============================================
-    # 3. ESTRATEGIA 1: Buscar después de "UNIDAD"
+    # 3. FILTROS ADICIONALES
     # ============================================
+    def es_part_number_valido(texto):
+        if not texto or len(texto) < 5:
+            return False
+        
+        if texto.upper() in PALABRAS_PROHIBIDAS:
+            return False
+        
+        if any(p in texto.upper() for p in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']):
+            return False
+        
+        if any(m in texto.upper() for m in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP']):
+            return False
+        
+        if any(p in texto.upper() for p in ['INCLUIDO', 'ENTERPRISE', 'JELLYFISH', 
+                                             'COMMANDER', 'FORESTER', 'CROSSTEK']):
+            return False
+        
+        if any(res in texto for res in ['1920X1200', '2880X1800', '1920X1080']):
+            return False
+        
+        if not re.search(r'[A-Z]', texto) or not re.search(r'[0-9]', texto):
+            return False
+        
+        return True
+    
+    # ============================================
+    # 4. ESTRATEGIAS DE EXTRACCIÓN
+    # ============================================
+    
+    # Estrategia 1: Después de "UNIDAD"
     if 'UNIDAD' in desc_upper:
         partes = desc_upper.split('UNIDAD')
         if len(partes) > 1:
             after_unidad = partes[1].strip()
-            # Buscar en la parte después de UNIDAD
             for patron in patrones_part_number:
                 matches = re.findall(patron, after_unidad)
                 for match in matches:
-                    match_clean = match.strip()
-                    if (len(match_clean) >= 5 and 
-                        match_clean not in PALABRAS_PROHIBIDAS and
-                        not any(p in match_clean for p in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']) and
-                        not any(marca in match_clean for marca in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP'])):
-                        return match_clean
+                    if es_part_number_valido(match.strip()):
+                        return match.strip()
     
-    # ============================================
-    # 4. ESTRATEGIA 2: Buscar en toda la descripción
-    # ============================================
+    # Estrategia 2: Toda la descripción
     for patron in patrones_part_number:
         matches = re.findall(patron, desc_clean)
         for match in matches:
-            match_clean = match.strip()
-            # Validaciones estrictas
-            if (len(match_clean) >= 5 and 
-                match_clean not in PALABRAS_PROHIBIDAS and
-                not any(p in match_clean for p in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']) and
-                not any(marca in match_clean for marca in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP']) and
-                not any(palabra in match_clean for palabra in ['INSTALADA', 'UNIDAD', 'PRO', 'RL', 'STATION'])):
-                return match_clean
+            if es_part_number_valido(match.strip()):
+                return match.strip()
     
-    # ============================================
-    # 5. ESTRATEGIA 3: Buscar códigos al final de la descripción
-    # ============================================
-    # Dividir por espacios y buscar al final
+    # Estrategia 3: Al final de la descripción
     palabras = desc_clean.split()
     for i in range(len(palabras) - 1, -1, -1):
         palabra = palabras[i].strip()
-        # Limpiar caracteres especiales
         palabra_limpia = re.sub(r'[^A-Za-z0-9\-]', '', palabra)
-        
-        if (len(palabra_limpia) >= 5 and 
-            palabra_limpia not in PALABRAS_PROHIBIDAS and
-            not any(p in palabra_limpia for p in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']) and
-            not any(marca in palabra_limpia for marca in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP'])):
-            # Verificar que tenga mayúsculas y números (característica de part number)
-            if re.search(r'[A-Z]', palabra_limpia) and re.search(r'[0-9]', palabra_limpia):
-                return palabra_limpia
+        if es_part_number_valido(palabra_limpia):
+            return palabra_limpia
     
-    # ============================================
-    # 6. ESTRATEGIA 4: Buscar patrones específicos de números de parte
-    # ============================================
-    # Buscar secuencias que parecen números de parte: Letras+Números+Letras
+    # Estrategia 4: Patrón específico
     patron_especifico = r'\b([A-Z]{2,}[0-9]{3,}[A-Z0-9]{2,})\b'
     matches = re.findall(patron_especifico, desc_clean)
     for match in matches:
-        if (len(match) >= 6 and 
-            match not in PALABRAS_PROHIBIDAS and
-            not any(p in match for p in ['DDR', 'HDMI', 'VGA', 'USB'])):
+        if es_part_number_valido(match):
             return match
     
-    # ============================================
-    # 7. ESTRATEGIA 5: Último recurso - buscar códigos largos
-    # ============================================
-    # Buscar cualquier código alfanumérico largo (8+ caracteres)
+    # Estrategia 5: Último recurso
     codigos_largos = re.findall(r'\b([A-Z0-9]{8,})\b', desc_clean)
     for codigo in codigos_largos:
-        if (codigo not in PALABRAS_PROHIBIDAS and
-            not any(p in codigo for p in ['DDR', 'HDMI', 'VGA', 'USB']) and
-            not any(marca in codigo for marca in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG'])):
+        if es_part_number_valido(codigo):
             return codigo
     
     return "No especificado"
 
 def extract_category(descripcion):
-    """Extrae la categoría del producto basado en la descripción."""
     desc_lower = descripcion.lower() if descripcion else ""
     for codigo, categoria in CATEGORIAS_OFICIALES.items():
         if categoria.lower() in desc_lower:
@@ -245,7 +249,6 @@ def extract_category(descripcion):
     return "OTROS"
 
 def extract_brand(descripcion, marcas_list):
-    """Extrae la marca del producto basado en la descripción."""
     desc_upper = descripcion.upper() if descripcion else ""
     for marca in marcas_list:
         if marca.upper() in desc_upper:
@@ -254,7 +257,6 @@ def extract_brand(descripcion, marcas_list):
 
 # --- FUNCIONES DE CARGA ---
 def get_all_zip_files_from_github(repo_url):
-    """Obtiene todos los archivos ZIP del repositorio."""
     try:
         api_url = repo_url.replace('github.com', 'api.github.com/repos')
         if not api_url.endswith('/contents'):
@@ -282,7 +284,6 @@ def get_all_zip_files_from_github(repo_url):
         return []
 
 def process_zip_file(zip_url, zip_name, progress_bar, status_text):
-    """Procesa un archivo ZIP y extrae todos los JSON."""
     productos = []
     
     try:
@@ -323,7 +324,6 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                         estado_ficha = item.get('estado_ficha', '')
                         estado_oferta = item.get('estado_oferta', '')
                         
-                        # Filtro estricto: Junio 2026 + OFERTADA + VIGENTE
                         if '06/2026' not in fecha_pub and '2026-06' not in fecha_pub:
                             continue
                         
@@ -371,7 +371,6 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
     return productos
 
 def load_all_data_from_repo(repo_url):
-    """Carga y procesa todos los datos de todos los ZIP."""
     all_productos = []
     
     zip_files = get_all_zip_files_from_github(repo_url)
@@ -411,24 +410,21 @@ def load_all_data_from_repo(repo_url):
     else:
         return None
 
-# --- FUNCIONES DE EXPORTACIÓN ---
 def create_excel_report(df):
-    """Crea un archivo Excel con el dashboard."""
     output = BytesIO()
     
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='Datos_Filtrados', index=False)
         
         resumen = pd.DataFrame({
-            'Métrica': ['Total de Fichas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados', 'Part Numbers Válidos'],
+            'Métrica': ['Total de Fichas', 'Categorías', 'Marcas', 'Precio Promedio', 'Puntaje Promedio', 'ZIP Procesados'],
             'Valor': [
                 len(df),
                 df['Categoria'].nunique(),
                 df['Marca'].nunique(),
                 f"${df['Precio'].mean():,.2f}",
                 f"{df['Puntaje'].mean():.2f}",
-                df['Archivo_Origen'].nunique(),
-                len(df[df['Part_Number'] != 'No especificado'])
+                df['Archivo_Origen'].nunique()
             ]
         })
         resumen.to_excel(writer, sheet_name='Resumen', index=False)
@@ -556,7 +552,7 @@ def main():
         st.markdown(f"""
         <div class="metric-card" style="border-left-color: #EF4444;">
             <div class="metric-value" style="color: #EF4444;">{part_numbers_invalidos}</div>
-            <div class="metric-label">❌ Part Numbers No Detectados</div>
+            <div class="metric-label">❌ No Detectados</div>
         </div>
         """, unsafe_allow_html=True)
     

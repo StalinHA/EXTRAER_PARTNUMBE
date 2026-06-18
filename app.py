@@ -52,6 +52,13 @@ st.markdown("""
         border-left: 5px solid #3B82F6;
         margin: 1rem 0;
     }
+    .success-box {
+        padding: 1rem;
+        background-color: #D1FAE5;
+        border-radius: 0.5rem;
+        border-left: 5px solid #10B981;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -88,7 +95,9 @@ MARCAS_COMPLETAS = [
 def extract_part_number(descripcion):
     """
     Función DEFINITIVA para extraer números de parte.
-    Basada en análisis de 100+ ejemplos reales.
+    - Ignora resoluciones de pantalla
+    - Detecta números con # (DX5R4LS#ABM)
+    - NO repite números de parte (solo devuelve el primero válido)
     """
     if not descripcion or not isinstance(descripcion, str):
         return "No especificado"
@@ -98,9 +107,10 @@ def extract_part_number(descripcion):
     desc_upper = desc_clean.upper()
     
     # ============================================
-    # 1. LISTA NEGRA EXTENDIDA (NUNCA SON PART NUMBERS)
+    # 1. LISTA NEGRA EXTENDIDA
     # ============================================
     PALABRAS_PROHIBIDAS = {
+        # Palabras comunes
         'PROCESADOR', 'COMPUTADORA', 'PANTALLA', 'ALMACENAMIENTO', 'TECLADO', 'MOUSE', 
         'MONITOR', 'TABLETA', 'MEMORIA', 'DISCO', 'INTEL', 'CORE', 'ULTRA', 'DDR', 
         'SSD', 'LCD', 'LED', 'WLAN', 'BLUETOOTH', 'HDMI', 'VGA', 'WINDOWS', 'ANDROID', 
@@ -121,15 +131,23 @@ def extract_part_number(descripcion):
         'SERIES', 'INCH', 'MONITOR', 'PORTATIL', 'ESCRITORIO', 'TODO', 'UNO',
         'ESTACION', 'TRABAJO', 'PUBLICITARIA', 'INTERACTIVA', 'EXTERNO', 'INTERNO',
         
-        # NUEVAS PALABRAS PROHIBIDAS
-        'INCLUIDO', 'ENTERPRISE', 'JELLYFISH', 'COMMANDER', '1920X1200', '2880X1800',
-        '1920X1080', '1366X768', 'FORESTER', 'FORESTERG2', 'CROSSTEK', 'PREINSTALADA'
+        # Palabras prohibidas
+        'INCLUIDO', 'ENTERPRISE', 'JELLYFISH', 'COMMANDER', 'CROSSTEK',
+        'FORESTER', 'FORESTERG2', 'PREINSTALADA', 'GRAFITO',
+        
+        # RESOLUCIONES DE PANTALLA (NUNCA son part numbers)
+        '1920X1200', '1920X1080', '2560X1440', '2560X1080', '2880X1800',
+        '1366X768', '3840X2160', '3440X1440', '2560X1600', '2048X1536',
+        '1600X900', '1280X800', '1024X768', '800X600'
     }
     
     # ============================================
     # 2. PATRONES DE NÚMEROS DE PARTE
     # ============================================
     patrones_part_number = [
+        # Con #: DX5R4LS#ABM
+        r'\b([A-Z0-9]+#[A-Z0-9]+)\b',
+        
         # LENOVO: L14G5U721162100D
         r'\b([A-Z][0-9][A-Z0-9]{5,}[0-9]{3,}[A-Z]?)\b',
         
@@ -175,29 +193,42 @@ def extract_part_number(descripcion):
         if not texto or len(texto) < 5:
             return False
         
+        # Limpiar caracteres especiales para validación
+        texto_limpio = re.sub(r'[^A-Za-z0-9]', '', texto)
+        
+        # No puede estar en la lista negra
+        if texto_limpio.upper() in PALABRAS_PROHIBIDAS:
+            return False
         if texto.upper() in PALABRAS_PROHIBIDAS:
             return False
         
+        # No puede ser una resolución
+        if any(res in texto for res in ['1920X1200', '1920X1080', '2560X1440', '2560X1080', '2880X1800']):
+            return False
+        if any(res in texto_limpio for res in ['1920X1200', '1920X1080', '2560X1440', '2560X1080', '2880X1800']):
+            return False
+        
+        # No puede ser un componente técnico
         if any(p in texto.upper() for p in ['DDR', 'HDMI', 'VGA', 'USB', 'LAN']):
             return False
         
+        # No puede ser una marca
         if any(m in texto.upper() for m in ['VASTEC', 'VIEWSONIC', 'LENOVO', 'SAMSUNG', 'HP']):
             return False
         
+        # No puede ser una palabra común
         if any(p in texto.upper() for p in ['INCLUIDO', 'ENTERPRISE', 'JELLYFISH', 
                                              'COMMANDER', 'FORESTER', 'CROSSTEK']):
             return False
         
-        if any(res in texto for res in ['1920X1200', '2880X1800', '1920X1080']):
-            return False
-        
+        # Debe tener al menos una letra y un número
         if not re.search(r'[A-Z]', texto) or not re.search(r'[0-9]', texto):
             return False
         
         return True
     
     # ============================================
-    # 4. ESTRATEGIAS DE EXTRACCIÓN
+    # 4. ESTRATEGIAS DE EXTRACCIÓN (UNA SOLA VEZ)
     # ============================================
     
     # Estrategia 1: Después de "UNIDAD"
@@ -222,7 +253,7 @@ def extract_part_number(descripcion):
     palabras = desc_clean.split()
     for i in range(len(palabras) - 1, -1, -1):
         palabra = palabras[i].strip()
-        palabra_limpia = re.sub(r'[^A-Za-z0-9\-]', '', palabra)
+        palabra_limpia = re.sub(r'[^A-Za-z0-9#\-]', '', palabra)
         if es_part_number_valido(palabra_limpia):
             return palabra_limpia
     
@@ -340,7 +371,7 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                             'Part_Number': part_number,
                             'Categoria': categoria,
                             'Marca': marca,
-                            'Descripcion': descripcion,
+                            'Descripcion': descripcion[:200] + '...' if len(descripcion) > 200 else descripcion,
                             'Moneda': item.get('moneda', ''),
                             'Precio': float(item.get('precio', 0)),
                             'Fecha_Registro': item.get('fecha_registro', ''),

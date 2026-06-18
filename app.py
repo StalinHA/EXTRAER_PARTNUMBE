@@ -8,6 +8,8 @@ from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 import requests
+import os
+import pickle
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(
@@ -73,6 +75,10 @@ st.markdown("""
         border-left: 5px solid #EF4444;
         margin: 1rem 0;
     }
+    .stTextArea textarea {
+        font-family: monospace;
+        font-size: 12px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,8 +111,47 @@ MARCAS_COMPLETAS = [
     'NEW KRAL', 'TLC'
 ]
 
-# --- FUNCIÓN DEFINITIVA PARA NÚMEROS DE PARTE ---
-def extract_part_number(descripcion):
+# --- ARCHIVO PARA GUARDAR EXCEPCIONES ---
+EXCEPCIONES_FILE = "excepciones_part_numbers.pkl"
+
+def cargar_excepciones():
+    """Carga las excepciones guardadas previamente"""
+    try:
+        if os.path.exists(EXCEPCIONES_FILE):
+            with open(EXCEPCIONES_FILE, 'rb') as f:
+                return pickle.load(f)
+    except:
+        pass
+    return {}
+
+def guardar_excepciones(excepciones):
+    """Guarda las excepciones en un archivo"""
+    try:
+        with open(EXCEPCIONES_FILE, 'wb') as f:
+            pickle.dump(excepciones, f)
+        return True
+    except:
+        return False
+
+# --- FUNCIÓN MEJORADA CON EXCEPCIONES ---
+def extract_part_number_con_excepciones(descripcion, excepciones):
+    """
+    Extrae el número de parte usando los patrones normales + excepciones manuales
+    """
+    if not descripcion or not isinstance(descripcion, str):
+        return "No especificado"
+    
+    # PRIMERO: Verificar si la descripción coincide con alguna excepción
+    desc_upper = descripcion.upper()
+    for patron, part_number in excepciones.items():
+        if patron.upper() in desc_upper:
+            return part_number
+    
+    # Si no hay excepción, usar la función normal
+    return extract_part_number_normal(descripcion)
+
+def extract_part_number_normal(descripcion):
+    """Función normal de extracción de números de parte"""
     if not descripcion or not isinstance(descripcion, str):
         return "No especificado"
     
@@ -267,7 +312,7 @@ def get_all_zip_files_from_github(repo_url):
         st.error(f"Error al obtener archivos: {str(e)}")
         return []
 
-def process_zip_file(zip_url, zip_name, progress_bar, status_text):
+def process_zip_file(zip_url, zip_name, progress_bar, status_text, excepciones):
     productos = []
     part_numbers_vistos = set()
     
@@ -316,7 +361,7 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                             continue
                         
                         descripcion = item.get('descripcion', '')
-                        part_number = extract_part_number(descripcion)
+                        part_number = extract_part_number_con_excepciones(descripcion, excepciones)
                         
                         if part_number in part_numbers_vistos:
                             continue
@@ -330,7 +375,7 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
                             'Part_Number': part_number,
                             'Categoria': categoria,
                             'Marca': marca,
-                            'Descripcion': descripcion[:200] + '...' if len(descripcion) > 200 else descripcion,
+                            'Descripcion': descripcion,  # Descripción COMPLETA
                             'Moneda': item.get('moneda', ''),
                             'Precio': float(item.get('precio', 0)),
                             'Fecha_Registro': item.get('fecha_registro', ''),
@@ -360,7 +405,7 @@ def process_zip_file(zip_url, zip_name, progress_bar, status_text):
     
     return productos
 
-def load_all_data_from_repo(repo_url):
+def load_all_data_from_repo(repo_url, excepciones):
     all_productos = []
     
     zip_files = get_all_zip_files_from_github(repo_url)
@@ -385,7 +430,8 @@ def load_all_data_from_repo(repo_url):
                 zip_info['download_url'],
                 zip_info['name'],
                 progress_bar,
-                status_text
+                status_text,
+                excepciones
             )
             
             all_productos.extend(productos)
@@ -436,10 +482,21 @@ def main():
     
     repo_url = "https://github.com/StalinHA/EXTRAER_PARTNUMBE"
     
+    # Cargar excepciones guardadas
+    excepciones = cargar_excepciones()
+    
+    # Mostrar excepciones actuales
+    if excepciones:
+        st.markdown(f"""
+        <div class="info-box">
+            📚 <b>{len(excepciones)} excepciones</b> cargadas para números de parte manuales.
+        </div>
+        """, unsafe_allow_html=True)
+    
     st.markdown('<div class="info-box">📦 Procesando todos los archivos ZIP del repositorio...</div>', unsafe_allow_html=True)
     
     with st.spinner('🔄 Descargando y procesando todos los archivos...'):
-        df = load_all_data_from_repo(repo_url)
+        df = load_all_data_from_repo(repo_url, excepciones)
     
     if df is None or len(df) == 0:
         st.warning("⚠️ No se encontraron fichas que cumplan los criterios.")
@@ -556,44 +613,89 @@ def main():
     
     st.divider()
     
-    # --- ANÁLISIS DE "NO DETECTADOS" ---
-    st.subheader("🔍 Productos sin Número de Parte Detectado")
+    # ============================================
+    # SECCIÓN: CORREGIR NÚMEROS DE PARTE MANUALMENTE
+    # ============================================
+    st.subheader("✏️ Corregir Números de Parte Manualmente")
     
     no_detectados = df_filtered[df_filtered['Part_Number'] == 'No especificado']
     
     if len(no_detectados) > 0:
         st.markdown(f"""
         <div class="danger-box">
-            ⚠️ <b>{len(no_detectados)} productos</b> no tienen número de parte detectado ({len(no_detectados)/total_fichas*100:.1f}% del total).
-            <br>Esto puede deberse a que el número de parte tiene un formato no reconocido o no está presente en la descripción.
+            ⚠️ <b>{len(no_detectados)} productos</b> no tienen número de parte detectado.
+            <br>Puedes <b>ingresar manualmente</b> el número de parte correcto y el sistema lo guardará para futuras ejecuciones.
         </div>
         """, unsafe_allow_html=True)
         
-        with st.expander(f"📋 Ver {min(10, len(no_detectados))} ejemplos de productos NO detectados"):
-            st.dataframe(
-                no_detectados[['ID_ProductoOfertado', 'Marca', 'Categoria', 'Descripcion']].head(10),
-                column_config={
-                    "ID_ProductoOfertado": "ID Producto",
-                    "Marca": "Marca",
-                    "Categoria": "Categoría",
-                    "Descripcion": st.column_config.TextColumn("Descripción", width='large'),
-                },
-                hide_index=True,
-                use_container_width=True
+        # Selector para elegir qué producto corregir
+        opciones = no_detectados['ID_ProductoOfertado'].tolist()
+        opciones_con_desc = [f"{id_} - {df_filtered[df_filtered['ID_ProductoOfertado']==id_]['Marca'].iloc[0]} - {df_filtered[df_filtered['ID_ProductoOfertado']==id_]['Categoria'].iloc[0]}" for id_ in opciones]
+        
+        if opciones:
+            selected_idx = st.selectbox(
+                "Selecciona un producto para corregir:",
+                range(len(opciones_con_desc)),
+                format_func=lambda x: opciones_con_desc[x][:100] + "..." if len(opciones_con_desc[x]) > 100 else opciones_con_desc[x]
             )
             
-            # Botón para exportar todos los no detectados
-            if st.button("📥 Exportar TODOS los no detectados a Excel"):
-                no_detectados[['ID_ProductoOfertado', 'Marca', 'Categoria', 'Descripcion']].to_excel(
-                    "no_detectados.xlsx", index=False
+            selected_id = opciones[selected_idx]
+            producto_seleccionado = df_filtered[df_filtered['ID_ProductoOfertado'] == selected_id].iloc[0]
+            
+            # Mostrar descripción COMPLETA
+            st.markdown("### 📄 Descripción COMPLETA del producto:")
+            descripcion_completa = producto_seleccionado['Descripcion']
+            st.text_area(
+                "Descripción (completa):",
+                value=descripcion_completa,
+                height=200,
+                disabled=True,
+                key="desc_completa"
+            )
+            
+            # Campo para ingresar el número de parte correcto
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                part_number_correcto = st.text_input(
+                    "✏️ Ingresa el número de parte correcto:",
+                    placeholder="Ejemplo: L14G5U721162100D",
+                    key="part_number_manual"
                 )
-                with open("no_detectados.xlsx", "rb") as f:
-                    st.download_button(
-                        label="📥 Descargar Excel",
-                        data=f,
-                        file_name=f"no_detectados_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+            
+            with col2:
+                # Botón para guardar la corrección
+                if st.button("💾 Guardar Corrección", type="primary", use_container_width=True):
+                    if part_number_correcto and len(part_number_correcto) >= 4:
+                        # Buscar una palabra clave única en la descripción para usar como patrón
+                        palabras_clave = descripcion_completa.split()[:10]
+                        patron_busqueda = " ".join(palabras_clave[:5])
+                        
+                        # Guardar la excepción
+                        excepciones[patron_busqueda] = part_number_correcto
+                        
+                        if guardar_excepciones(excepciones):
+                            st.success(f"✅ ¡Corrección guardada! '{part_number_correcto}' se usará automáticamente para productos similares.")
+                            st.info("🔄 Recarga la página o vuelve a procesar los datos para aplicar los cambios.")
+                            st.rerun()
+                        else:
+                            st.error("❌ Error al guardar la corrección.")
+                    else:
+                        st.warning("⚠️ Ingresa un número de parte válido (mínimo 4 caracteres).")
+            
+            # Mostrar todas las excepciones actuales
+            if excepciones:
+                with st.expander(f"📚 Ver todas las excepciones guardadas ({len(excepciones)})"):
+                    df_excepciones = pd.DataFrame([
+                        {"Patrón de búsqueda": k, "Número de parte": v} 
+                        for k, v in excepciones.items()
+                    ])
+                    st.dataframe(df_excepciones, use_container_width=True, hide_index=True)
+                    
+                    if st.button("🗑️ Limpiar todas las excepciones", type="secondary"):
+                        if guardar_excepciones({}):
+                            st.success("✅ Excepciones eliminadas.")
+                            st.rerun()
+    
     else:
         st.markdown("""
         <div class="success-box">
@@ -610,7 +712,7 @@ def main():
     if len(duplicados) > 0:
         st.markdown(f"""
         <div class="warning-box">
-            ⚠️ Se encontraron <b>{len(duplicados)}</b> números de parte que aparecen <b>múltiples veces</b> en diferentes fichas.
+            ⚠️ Se encontraron <b>{len(duplicados)}</b> números de parte que aparecen <b>múltiples veces</b>.
             <br>El dashboard muestra solo <b>valores únicos</b> para evitar duplicados.
         </div>
         """, unsafe_allow_html=True)
